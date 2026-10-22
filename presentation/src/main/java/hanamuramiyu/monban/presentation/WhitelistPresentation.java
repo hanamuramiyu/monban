@@ -19,7 +19,8 @@ public final class WhitelistPresentation {
     private static final Comparator<AccessGrant> WHITELIST_ORDER = Comparator
             .comparing((AccessGrant grant) -> grant.identity().type().name())
             .thenComparing(grant -> grant.identity().normalizedName())
-            .thenComparing(grant -> grant.identity().verifiedUuid().map(UUID::toString).orElse(""));
+            .thenComparing(grant -> grant.identity().verifiedUuid().map(UUID::toString).orElse(""))
+            .thenComparing(grant -> grant.identity().xuid().orElse(""));
 
     private final MonbanUi ui;
 
@@ -39,19 +40,37 @@ public final class WhitelistPresentation {
     }
 
     public List<Component> usage() {
-        return List.of(
-                ui.title("whitelist"),
-                usageLine("Add offline", "/monban whitelist add offline <name>"),
-                usageLine("Add online", "/monban whitelist add online <name>"),
-                usageLine("Add online · UUID", "/monban whitelist add online <name> <uuid>"),
-                usageLine("Remove offline", "/monban whitelist remove offline <name>"),
-                usageLine("Remove online", "/monban whitelist remove online <name>"),
-                usageLine("Remove online · UUID", "/monban whitelist remove online <name> <uuid>"),
-                usageLine("Enable", "/monban whitelist enable"),
-                usageLine("Disable", "/monban whitelist disable"),
-                usageLine("List", "/monban whitelist list [page]"),
-                usageLine("Filter", "/monban whitelist list <offline|online> [page]")
-        );
+        return usage(false);
+    }
+
+    public List<Component> velocityUsage() {
+        return usage(true);
+    }
+
+    private List<Component> usage(boolean includeFloodgate) {
+        List<Component> lines = new ArrayList<>();
+        lines.add(ui.title("whitelist"));
+        lines.add(usageLine("Add offline", "/monban whitelist add offline <name>"));
+        lines.add(usageLine("Add online", "/monban whitelist add online <name>"));
+        lines.add(usageLine("Add online · UUID", "/monban whitelist add online <name> <uuid>"));
+        if (includeFloodgate) {
+            lines.add(usageLine("Add Floodgate", "/monban whitelist add floodgate <name>"));
+            lines.add(usageLine("Add Floodgate", "/monban whitelist add floodgate <name> <xuid>"));
+        }
+        lines.add(usageLine("Remove offline", "/monban whitelist remove offline <name>"));
+        lines.add(usageLine("Remove online", "/monban whitelist remove online <name>"));
+        lines.add(usageLine("Remove online · UUID", "/monban whitelist remove online <name> <uuid>"));
+        if (includeFloodgate) {
+            lines.add(usageLine("Remove Floodgate", "/monban whitelist remove floodgate <name>"));
+            lines.add(usageLine("Remove Floodgate", "/monban whitelist remove floodgate <name> <xuid>"));
+        }
+        lines.add(usageLine("Enable", "/monban whitelist enable"));
+        lines.add(usageLine("Disable", "/monban whitelist disable"));
+        lines.add(usageLine("List", "/monban whitelist list [page]"));
+        lines.add(usageLine("Filter", includeFloodgate
+                ? "/monban whitelist list <offline|online|floodgate> [page]"
+                : "/monban whitelist list <offline|online> [page]"));
+        return List.copyOf(lines);
     }
 
     public Component invalidUuid(String value) {
@@ -59,6 +78,13 @@ public final class WhitelistPresentation {
                 .append(ui.text("Invalid UUID: "))
                 .append(Component.text(Objects.requireNonNull(value, "value"), MonbanPalette.WARNING))
                 .append(ui.text(".")));
+    }
+
+    public Component invalidXuid(String value) {
+        return ui.error(Component.empty()
+                .append(ui.text("Invalid Floodgate XUID: "))
+                .append(Component.text(Objects.requireNonNull(value, "value"), MonbanPalette.WARNING))
+                .append(ui.text(". XUID must contain 1-32 decimal digits.")));
     }
 
     public Component invalidPlayerName(String name) {
@@ -69,14 +95,26 @@ public final class WhitelistPresentation {
     }
 
     public Component invalidIdentityType(String value) {
-        return ui.error(Component.empty()
+        return invalidIdentityType(value, false);
+    }
+
+    public Component velocityInvalidIdentityType(String value) {
+        return invalidIdentityType(value, true);
+    }
+
+    private Component invalidIdentityType(String value, boolean includeFloodgate) {
+        Component result = ui.error(Component.empty()
                 .append(ui.text("Identity type must be "))
                 .append(ui.identityBadge(IdentityType.ONLINE))
-                .append(ui.text(" or "))
-                .append(ui.identityBadge(IdentityType.OFFLINE))
+                .append(ui.text(", "))
+                .append(ui.identityBadge(IdentityType.OFFLINE)));
+        if (includeFloodgate) {
+            result = result.append(ui.text(", or ")).append(ui.identityBadge(IdentityType.FLOODGATE));
+        }
+        return result
                 .append(ui.text(": "))
                 .append(Component.text(Objects.requireNonNull(value, "value"), MonbanPalette.WARNING))
-                .append(ui.text(".")));
+                .append(ui.text("."));
     }
 
     public Component invalidPage(String value) {

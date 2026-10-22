@@ -5,6 +5,7 @@ import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.FloodgateSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -53,8 +54,11 @@ public final class FileMonbanConfigLoader {
     );
     private static final Set<String> DEPLOYMENT_FIELDS = Set.of(MODE_KEY);
     private static final Set<String> WHITELIST_FIELDS = Set.of(ENABLED_KEY);
+    private static final String FLOODGATE_KEY = "floodgate";
+    private static final String REQUIRE_PROVIDER_KEY = "require-provider";
+    private static final Set<String> FLOODGATE_FIELDS = Set.of(ENABLED_KEY, REQUIRE_PROVIDER_KEY);
     private static final Set<String> STANDALONE_IDENTITY_FIELDS = Set.of(MODE_KEY);
-    private static final Set<String> VELOCITY_IDENTITY_FIELDS = Set.of(MODE_KEY, HYBRID_KEY);
+    private static final Set<String> VELOCITY_IDENTITY_FIELDS = Set.of(MODE_KEY, HYBRID_KEY, FLOODGATE_KEY);
     private static final Set<String> HYBRID_FIELDS = Set.of(ENABLED_KEY, DUAL_ENTRY_PREFERENCE_KEY);
     private static final Set<String> BACKEND_PERMISSIONS_FIELDS = Set.of(ENABLED_KEY, SERVER_NAME_KEY);
 
@@ -118,6 +122,7 @@ public final class FileMonbanConfigLoader {
                 identity.get(MODE_KEY),
                 IDENTITY_KEY + "." + MODE_KEY
         );
+        FloodgateSettings floodgateSettings;
         HybridIdentitySettings hybridSettings = switch (deploymentMode) {
             case STANDALONE -> {
                 if (identity.containsKey(HYBRID_KEY)) {
@@ -127,10 +132,12 @@ public final class FileMonbanConfigLoader {
                     );
                 }
                 rejectUnknownFields(identity, STANDALONE_IDENTITY_FIELDS, IDENTITY_KEY);
+                floodgateSettings = FloodgateSettings.defaults();
                 yield HybridIdentitySettings.defaults();
             }
             case VELOCITY -> {
                 rejectUnknownFields(identity, VELOCITY_IDENTITY_FIELDS, IDENTITY_KEY);
+                floodgateSettings = parseFloodgate(identity.get(FLOODGATE_KEY));
                 Map<String, Object> hybrid = requireStringMap(
                         identity.get(HYBRID_KEY),
                         IDENTITY_KEY + "." + HYBRID_KEY
@@ -152,6 +159,8 @@ public final class FileMonbanConfigLoader {
         boolean velocityServerNamePresent = deploymentMode == DeploymentMode.VELOCITY
                 && root.get(BACKEND_PERMISSIONS_KEY) instanceof Map<?, ?> backendPermissionsSection
                 && backendPermissionsSection.containsKey(SERVER_NAME_KEY);
+        boolean floodgateSectionMissing = deploymentMode == DeploymentMode.VELOCITY
+                && !identity.containsKey(FLOODGATE_KEY);
         BackendPermissionSettings backendPermissions = parseBackendPermissions(
                 root.get(BACKEND_PERMISSIONS_KEY),
                 deploymentMode
@@ -160,18 +169,19 @@ public final class FileMonbanConfigLoader {
         MonbanConfig config = new MonbanConfig(
                 new DeploymentSettings(deploymentMode),
                 new WhitelistSettings(whitelistEnabled),
-                new IdentitySettings(identityMode, hybridSettings),
+                new IdentitySettings(identityMode, hybridSettings, floodgateSettings),
                 backendPermissions
         );
         validateHybridConfiguration(config);
-        if (backendPermissionsMissing || velocityServerNamePresent) {
-            migrateBackendPermissions(yamlText, config);
+        if (backendPermissionsMissing || velocityServerNamePresent || floodgateSectionMissing) {
+            migrateConfig(yamlText, config);
         }
         return config;
     }
 
     public void save(MonbanConfig config) throws IOException {
         Objects.requireNonNull(config, "config");
+        validateDeploymentConfiguration(config);
         validateHybridConfiguration(config);
         writeAtomically(serializeConfig(config));
     }
@@ -231,7 +241,7 @@ public final class FileMonbanConfigLoader {
         return serializeConfig(creationDefaults);
     }
 
-    private void migrateBackendPermissions(String yamlText, MonbanConfig config) throws IOException {
+    private void migrateConfig(String yamlText, MonbanConfig config) throws IOException {
         if (config.deployment().mode() == DeploymentMode.VELOCITY) {
             writeAtomically(serializeConfig(config));
             return;
@@ -266,18 +276,36 @@ public final class FileMonbanConfigLoader {
                       hybrid:
                         enabled: %s
                         dual-entry-preference: %s
+                      floodgate:
+                        enabled: %s
+                        require-provider: %s
                     """.formatted(
                     CONFIG_VERSION,
                     config.whitelist().enabled(),
                     config.identity().mode().name(),
                     config.identity().hybrid().enabled(),
-                    config.identity().hybrid().dualEntryPreference().name()
+                    config.identity().hybrid().dualEntryPreference().name(),
+                    config.identity().floodgate().enabled(),
+                    config.identity().floodgate().requireProvider()
             );
         };
         return base + serializeBackendPermissions(
                 config.backendPermissions(),
                 config.deployment().mode() == DeploymentMode.STANDALONE
         );
+    }
+
+    private static FloodgateSettings parseFloodgate(Object value) throws IOException {
+        if (value == null) return FloodgateSettings.defaults();
+        Map<String, Object> section = requireStringMap(value, IDENTITY_KEY + "." + FLOODGATE_KEY);
+        rejectUnknownFields(section, FLOODGATE_FIELDS, IDENTITY_KEY + "." + FLOODGATE_KEY);
+        boolean enabled = section.containsKey(ENABLED_KEY)
+                ? requireBoolean(section.get(ENABLED_KEY), IDENTITY_KEY + "." + FLOODGATE_KEY + "." + ENABLED_KEY)
+                : true;
+        boolean required = section.containsKey(REQUIRE_PROVIDER_KEY)
+                ? requireBoolean(section.get(REQUIRE_PROVIDER_KEY), IDENTITY_KEY + "." + FLOODGATE_KEY + "." + REQUIRE_PROVIDER_KEY)
+                : false;
+        return new FloodgateSettings(enabled, required);
     }
 
     private static BackendPermissionSettings parseBackendPermissions(
@@ -355,6 +383,13 @@ public final class FileMonbanConfigLoader {
         }
         if (config.identity().mode() != IdentityResolutionMode.AUTO) {
             throw new IOException("identity.hybrid.enabled=true requires identity.mode=AUTO.");
+        }
+    }
+
+    private static void validateDeploymentConfiguration(MonbanConfig config) throws IOException {
+        if (config.deployment().mode() == DeploymentMode.STANDALONE
+                && !FloodgateSettings.defaults().equals(config.identity().floodgate())) {
+            throw new IOException("identity.floodgate is supported only in VELOCITY deployment.");
         }
     }
 

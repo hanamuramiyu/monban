@@ -228,6 +228,7 @@ public final class VelocityAccessCommand {
     ) {
         parent.then(offlineBranch(mutation, scopeFactory));
         parent.then(onlineBranch(mutation, scopeFactory));
+        parent.then(floodgateBranch(mutation, scopeFactory));
     }
 
     private LiteralArgumentBuilder<CommandSource> offlineBranch(
@@ -254,6 +255,28 @@ public final class VelocityAccessCommand {
                                         mutation,
                                         scopeFactory,
                                         IdentityType.ONLINE
+                ))));
+    }
+
+    private LiteralArgumentBuilder<CommandSource> floodgateBranch(
+            Mutation mutation,
+            Function<CommandContext<CommandSource>, AccessScope> scopeFactory
+    ) {
+        return BrigadierCommand.literalArgumentBuilder("floodgate")
+                .then(BrigadierCommand.requiredArgumentBuilder("name", StringArgumentType.word())
+                        .suggests(playerSuggestions())
+                        .executes(context -> executeMutation(
+                                context,
+                                mutation,
+                                scopeFactory,
+                                IdentityType.FLOODGATE
+                        ))
+                        .then(BrigadierCommand.requiredArgumentBuilder("xuid", StringArgumentType.word())
+                                .executes(context -> executeMutation(
+                                        context,
+                                        mutation,
+                                        scopeFactory,
+                                        IdentityType.FLOODGATE
                                 ))));
     }
 
@@ -377,6 +400,9 @@ public final class VelocityAccessCommand {
             return switch (identityType) {
                 case OFFLINE -> PlayerIdentity.offline(name);
                 case ONLINE -> PlayerIdentity.online(name, parseUuid(context));
+                case FLOODGATE -> context.getArguments().containsKey("xuid")
+                        ? PlayerIdentity.floodgate(name, parseXuid(context))
+                        : PlayerIdentity.floodgate(name);
             };
         } catch (CommandInputException exception) {
             throw exception;
@@ -391,6 +417,15 @@ public final class VelocityAccessCommand {
             return UUID.fromString(value);
         } catch (IllegalArgumentException exception) {
             throw new CommandInputException("Invalid UUID: " + value + ".", exception);
+        }
+    }
+
+    private String parseXuid(CommandContext<CommandSource> context) {
+        String value = StringArgumentType.getString(context, "xuid");
+        try {
+            return PlayerIdentity.floodgate("Floodgate", value).xuid().orElseThrow();
+        } catch (IllegalArgumentException exception) {
+            throw new CommandInputException("Invalid Floodgate XUID: " + value + ". XUID must contain 1-32 decimal digits.", exception);
         }
     }
 

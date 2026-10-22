@@ -8,20 +8,30 @@ import java.util.regex.Pattern;
 
 public final class PlayerIdentity {
     private static final Pattern VALID_NAME = Pattern.compile("[A-Za-z0-9_]{1,16}");
+    private static final Pattern VALID_FLOODGATE_NAME = Pattern.compile("\\S{1,16}");
 
     private final String name;
     private final String normalizedName;
     private final UUID technicalUuid;
     private final IdentityType type;
+    private final String xuid;
 
     private PlayerIdentity(String name, UUID technicalUuid, IdentityType type) {
-        this.name = requireValidName(name);
+        this(name, technicalUuid, type, null);
+    }
+
+    private PlayerIdentity(String name, UUID technicalUuid, IdentityType type, String xuid) {
+        this.type = Objects.requireNonNull(type, "type");
+        this.name = requireValidName(name, type);
         this.normalizedName = normalizeValidName(name);
         this.technicalUuid = technicalUuid;
-        this.type = Objects.requireNonNull(type, "type");
+        this.xuid = xuid;
 
         if (type == IdentityType.ONLINE && technicalUuid == null) {
             throw new NullPointerException("technicalUuid");
+        }
+        if (type == IdentityType.FLOODGATE && xuid != null && !xuid.matches("[0-9]{1,32}")) {
+            throw new IllegalArgumentException("Invalid Floodgate XUID");
         }
     }
 
@@ -35,6 +45,14 @@ public final class PlayerIdentity {
 
     public static PlayerIdentity offline(String name, UUID technicalUuid) {
         return new PlayerIdentity(name, Objects.requireNonNull(technicalUuid, "technicalUuid"), IdentityType.OFFLINE);
+    }
+
+    public static PlayerIdentity floodgate(String name, String xuid) {
+        return new PlayerIdentity(name, null, IdentityType.FLOODGATE, Objects.requireNonNull(xuid, "xuid"));
+    }
+
+    public static PlayerIdentity floodgate(String name) {
+        return new PlayerIdentity(name, null, IdentityType.FLOODGATE);
     }
 
     public String name() {
@@ -55,6 +73,8 @@ public final class PlayerIdentity {
                 : Optional.empty();
     }
 
+    public Optional<String> xuid() { return Optional.ofNullable(xuid); }
+
     public boolean hasVerifiedUuid() {
         return type == IdentityType.ONLINE;
     }
@@ -64,7 +84,7 @@ public final class PlayerIdentity {
     }
 
     public boolean matchesName(String otherName) {
-        return isValidName(otherName) && normalizedName.equals(normalizeValidName(otherName));
+        return isValidName(otherName, type) && normalizedName.equals(normalizeValidName(otherName));
     }
 
     public boolean sameIdentityAs(PlayerIdentity other) {
@@ -75,16 +95,28 @@ public final class PlayerIdentity {
         return name != null && VALID_NAME.matcher(name).matches();
     }
 
+    public static boolean isValidFloodgateName(String name) {
+        return name != null && VALID_FLOODGATE_NAME.matcher(name).matches();
+    }
+
     public static String normalizeName(String name) {
         return normalizeValidName(requireValidName(name));
     }
 
     private static String requireValidName(String name) {
+        return requireValidName(name, IdentityType.OFFLINE);
+    }
+
+    private static String requireValidName(String name, IdentityType type) {
         Objects.requireNonNull(name, "name");
-        if (!isValidName(name)) {
+        if (!isValidName(name, type)) {
             throw new IllegalArgumentException("Invalid Minecraft player name: " + name);
         }
         return name;
+    }
+
+    private static boolean isValidName(String name, IdentityType type) {
+        return type == IdentityType.FLOODGATE ? isValidFloodgateName(name) : isValidName(name);
     }
 
     private static String normalizeValidName(String name) {
@@ -105,6 +137,7 @@ public final class PlayerIdentity {
         return switch (type) {
             case ONLINE -> technicalUuid.equals(other.technicalUuid);
             case OFFLINE -> normalizedName.equals(other.normalizedName);
+            case FLOODGATE -> normalizedName.equals(other.normalizedName);
         };
     }
 
@@ -113,6 +146,7 @@ public final class PlayerIdentity {
         return switch (type) {
             case ONLINE -> Objects.hash(type, technicalUuid);
             case OFFLINE -> Objects.hash(type, normalizedName);
+            case FLOODGATE -> Objects.hash(type, normalizedName);
         };
     }
 

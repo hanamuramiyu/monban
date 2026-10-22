@@ -147,4 +147,39 @@ class PlayerIdentityTest {
 
         assertNotEquals(online, offline);
     }
+
+    @Test
+    void floodgateIdentityUsesNormalizedNameAsDurableIdentity() {
+        PlayerIdentity first = PlayerIdentity.floodgate("Bedrock", "001234567890");
+        PlayerIdentity sameNameWithDifferentXuid = PlayerIdentity.floodgate("bedrock", "009876543210");
+        PlayerIdentity renamed = PlayerIdentity.floodgate("BedrockNew", "001234567890");
+
+        assertEquals(IdentityType.FLOODGATE, first.type());
+        assertEquals("001234567890", first.xuid().orElseThrow());
+        assertEquals(first, sameNameWithDifferentXuid);
+        assertNotEquals(first, renamed);
+        assertNotEquals(first, PlayerIdentity.offline("Bedrock"));
+    }
+
+    @Test
+    void floodgateIdentityCanBeCreatedFromNameWithoutXuid() {
+        PlayerIdentity identity = PlayerIdentity.floodgate("Bedrock");
+
+        assertEquals(IdentityType.FLOODGATE, identity.type());
+        assertTrue(identity.xuid().isEmpty());
+    }
+
+    @Test
+    void floodgateIdentityAcceptsServerVisibleNameWithConfiguredPrefix() {
+        PlayerIdentity identity = PlayerIdentity.floodgate(".Bedrock_Name", "001234567890");
+
+        assertEquals(".Bedrock_Name", identity.name());
+        assertTrue(identity.matchesName(".bedrock_name"));
+    }
+
+    @Test
+    void floodgateIdentityRejectsInvalidXuid() {
+        assertThrows(IllegalArgumentException.class, () -> PlayerIdentity.floodgate("Bedrock", ""));
+        assertThrows(IllegalArgumentException.class, () -> PlayerIdentity.floodgate("Bedrock", "not-xuid"));
+    }
 }

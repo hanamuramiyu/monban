@@ -29,6 +29,8 @@ Configuring `deployment.mode: VELOCITY` on the Paper/Folia plugin is rejected.
 
 When the server is a backend in a Velocity network, monban can apply synchronized player-group and direct permissions locally. Install the Velocity monban build as the network authority, install this build on the backend, enable `backend-permissions` in `config.yml`, set the backend name, and copy the generated `sync.yml` from Velocity. In centralized mode local whitelist administration is disabled.
 
+Floodgate identity resolution belongs to the Velocity build. This Paper/Folia plugin does not inspect Floodgate state or create a `FLOODGATE` identity. Synchronized state applies to the Java `ONLINE` or `OFFLINE` identity that the backend can resolve; Floodgate grants are evaluated on Velocity and are not re-matched as `FLOODGATE` on the backend.
+
 For a backend registered in Velocity as `lobby`, use:
 
 ```yaml
@@ -42,8 +44,8 @@ Use the same `plugins/monban/sync.yml` contents on Velocity and the backend. `se
 Backend permissions can be checked with Chunky:
 
 ```text
-monban group moderator permission add server lobby chunky.command.start
-monban group moderator permission add server lobby chunky.command.cancel
+/monban group moderator permission add server lobby chunky.command.start
+/monban group moderator permission add server lobby chunky.command.cancel
 ```
 
 After assigning the group to a player and reconnecting, `/chunky ` should show the permitted subcommands and `/chunky start` should execute.

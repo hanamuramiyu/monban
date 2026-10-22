@@ -2,6 +2,7 @@ package hanamuramiyu.monban.velocity.command;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -100,7 +101,8 @@ public final class VelocityGroupCommand {
                         .then(userPermissionMutation("add", true))
                         .then(userPermissionMutation("remove", false))
                         .then(userIdentityBranch("offline", IdentityType.OFFLINE))
-                        .then(userIdentityBranch("online", IdentityType.ONLINE)));
+                        .then(userIdentityBranch("online", IdentityType.ONLINE))
+                        .then(userFloodgateIdentityBranch()));
     }
 
     private RequiredArgumentBuilder<CommandSource, String> groupIdArgument() {
@@ -197,6 +199,27 @@ public final class VelocityGroupCommand {
                 .then(userGroupMutation("remove", false, identityType))
                 .then(userPermissionMutation("add", true, identityType))
                 .then(userPermissionMutation("remove", false, identityType));
+    }
+
+    private LiteralArgumentBuilder<CommandSource> userFloodgateIdentityBranch() {
+        LiteralArgumentBuilder<CommandSource> branch = BrigadierCommand.literalArgumentBuilder("floodgate");
+        addFloodgateUserActions(branch);
+        RequiredArgumentBuilder<CommandSource, String> xuid = BrigadierCommand.requiredArgumentBuilder(
+                "xuid",
+                StringArgumentType.word()
+        );
+        addFloodgateUserActions(xuid);
+        branch.then(xuid);
+        return branch;
+    }
+
+    private void addFloodgateUserActions(
+            ArgumentBuilder<CommandSource, ?> parent
+    ) {
+        parent.then(userGroupMutation("add", true, IdentityType.FLOODGATE))
+                .then(userGroupMutation("remove", false, IdentityType.FLOODGATE))
+                .then(userPermissionMutation("add", true, IdentityType.FLOODGATE))
+                .then(userPermissionMutation("remove", false, IdentityType.FLOODGATE));
     }
 
     private LiteralArgumentBuilder<CommandSource> userPermissionMutation(String literal, boolean grant) {
@@ -320,8 +343,13 @@ public final class VelocityGroupCommand {
         String name = StringArgumentType.getString(context, "player");
         try {
             PlayerIdentity.offline(name);
+            if (identityType == IdentityType.FLOODGATE) {
+                floodgateIdentity(context, name);
+            }
         } catch (IllegalArgumentException exception) {
-            send(context, "Invalid Minecraft player name: " + name + ".");
+            send(context, identityType == IdentityType.FLOODGATE
+                    ? "Invalid Floodgate XUID. XUID must contain 1-32 decimal digits."
+                    : "Invalid Minecraft player name: " + name + ".");
             return 0;
         }
         return schedule(context, () -> resolveIdentity(context, name, identityType, identity -> {
@@ -352,8 +380,13 @@ public final class VelocityGroupCommand {
         try {
             PlayerIdentity.offline(name);
             new PermissionGrant(scope, node);
+            if (identityType == IdentityType.FLOODGATE) {
+                floodgateIdentity(context, name);
+            }
         } catch (IllegalArgumentException exception) {
-            send(context, "Invalid command input: " + exception.getMessage());
+            send(context, identityType == IdentityType.FLOODGATE
+                    ? "Invalid Floodgate XUID. XUID must contain 1-32 decimal digits."
+                    : "Invalid command input: " + exception.getMessage());
             return 0;
         }
         return schedule(context, () -> resolveIdentity(context, name, identityType, identity -> {
@@ -405,6 +438,14 @@ public final class VelocityGroupCommand {
     ) {
         if (identityType == IdentityType.OFFLINE) {
             consumer.accept(PlayerIdentity.offline(name));
+            return;
+        }
+        if (identityType == IdentityType.FLOODGATE) {
+            try {
+                consumer.accept(floodgateIdentity(context, name));
+            } catch (IllegalArgumentException exception) {
+                send(context, "Invalid Floodgate XUID. XUID must contain 1-32 decimal digits.");
+            }
             return;
         }
         try {
@@ -467,8 +508,30 @@ public final class VelocityGroupCommand {
         send(source, "/monban group <id> access grant|revoke ...");
         send(source, "/monban group <id> permission add|remove ...");
         send(source, "/monban user <player> [online|offline] group add|remove <id>");
+        send(source, "/monban user <player> floodgate group add|remove <id>");
+        send(source, "/monban user <player> floodgate <xuid> group add|remove <id>");
         send(source, "/monban user <player> [online|offline] permission add|remove ...");
+        send(source, "/monban user <player> floodgate permission add|remove ...");
+        send(source, "/monban user <player> floodgate <xuid> permission add|remove ...");
         return Command.SINGLE_SUCCESS;
+    }
+
+    private String parseXuid(CommandContext<CommandSource> context) {
+        String value = StringArgumentType.getString(context, "xuid");
+        try {
+            return PlayerIdentity.floodgate("Floodgate", value).xuid().orElseThrow();
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException(
+                    "Invalid Floodgate XUID. XUID must contain 1-32 decimal digits.",
+                    exception
+            );
+        }
+    }
+
+    private PlayerIdentity floodgateIdentity(CommandContext<CommandSource> context, String name) {
+        return context.getArguments().containsKey("xuid")
+                ? PlayerIdentity.floodgate(name, parseXuid(context))
+                : PlayerIdentity.floodgate(name);
     }
 
     private void send(CommandContext<CommandSource> context, String message) {

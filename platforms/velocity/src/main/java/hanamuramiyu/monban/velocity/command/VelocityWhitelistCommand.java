@@ -139,7 +139,7 @@ public final class VelocityWhitelistCommand {
                     if (!context.getSource().hasPermission(PERMISSION)) {
                         context.getSource().sendMessage(new MonbanUi().unknownCommand());
                     } else {
-                        presentation.usage().forEach(context.getSource()::sendMessage);
+                        presentation.velocityUsage().forEach(context.getSource()::sendMessage);
                     }
                     return Command.SINGLE_SUCCESS;
                 });
@@ -205,6 +205,13 @@ public final class VelocityWhitelistCommand {
                         .executes(context -> executeAutomaticMutation(context, mutation))
                         .then(BrigadierCommand.requiredArgumentBuilder("uuid", StringArgumentType.word())
                                 .executes(context -> executeMutation(context, mutation, IdentityType.ONLINE)))));
+
+        parent.then(BrigadierCommand.literalArgumentBuilder("floodgate")
+                .then(BrigadierCommand.requiredArgumentBuilder("name", StringArgumentType.word())
+                        .suggests(playerSuggestions())
+                        .executes(context -> executeMutation(context, mutation, IdentityType.FLOODGATE))
+                        .then(BrigadierCommand.requiredArgumentBuilder("xuid", StringArgumentType.word())
+                                .executes(context -> executeMutation(context, mutation, IdentityType.FLOODGATE)))));
     }
 
     private LiteralArgumentBuilder<CommandSource> listBranch() {
@@ -214,6 +221,7 @@ public final class VelocityWhitelistCommand {
         list.then(pageArgument(null));
         list.then(identityListBranch("offline", IdentityType.OFFLINE));
         list.then(identityListBranch("online", IdentityType.ONLINE));
+        list.then(identityListBranch("floodgate", IdentityType.FLOODGATE));
         return list;
     }
 
@@ -328,6 +336,9 @@ public final class VelocityWhitelistCommand {
             return switch (identityType) {
                 case OFFLINE -> PlayerIdentity.offline(name);
                 case ONLINE -> PlayerIdentity.online(name, parseUuid(context));
+                case FLOODGATE -> context.getArguments().containsKey("xuid")
+                        ? PlayerIdentity.floodgate(name, parseXuid(context))
+                        : PlayerIdentity.floodgate(name);
             };
         } catch (CommandInputException exception) {
             throw exception;
@@ -342,6 +353,15 @@ public final class VelocityWhitelistCommand {
             return UUID.fromString(value);
         } catch (IllegalArgumentException exception) {
             throw new CommandInputException(presentation.invalidUuid(value), exception);
+        }
+    }
+
+    private String parseXuid(CommandContext<CommandSource> context) {
+        String value = StringArgumentType.getString(context, "xuid");
+        try {
+            return PlayerIdentity.floodgate("Floodgate", value).xuid().orElseThrow();
+        } catch (IllegalArgumentException exception) {
+            throw new CommandInputException(presentation.invalidXuid(value), exception);
         }
     }
 

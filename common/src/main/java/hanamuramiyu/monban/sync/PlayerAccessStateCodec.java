@@ -26,7 +26,7 @@ import java.util.UUID;
 
 public final class PlayerAccessStateCodec {
     private static final int MAGIC = 0x4D425354;
-    private static final int VERSION = 2;
+    private static final int VERSION = 3;
     private static final int MAX_PAYLOAD_SIZE = 1024 * 1024;
     private static final int MAX_ENTRIES = 100_000;
     private static final int SIGNATURE_SIZE = 32;
@@ -223,6 +223,10 @@ public final class PlayerAccessStateCodec {
             output.writeLong(uuid.getMostSignificantBits());
             output.writeLong(uuid.getLeastSignificantBits());
         }
+        output.writeBoolean(identity.xuid().isPresent());
+        if (identity.xuid().isPresent()) {
+            writeString(output, identity.xuid().orElseThrow());
+        }
     }
 
     private static PlayerIdentity readIdentity(DataInputStream input) throws IOException {
@@ -235,9 +239,12 @@ public final class PlayerAccessStateCodec {
         if (input.readBoolean()) {
             uuid = new UUID(input.readLong(), input.readLong());
         }
-        return IdentityType.values()[type] == IdentityType.ONLINE
-                ? PlayerIdentity.online(name, uuid)
-                : uuid == null ? PlayerIdentity.offline(name) : PlayerIdentity.offline(name, uuid);
+        String xuid = input.readBoolean() ? readString(input) : null;
+        return switch (IdentityType.values()[type]) {
+            case ONLINE -> PlayerIdentity.online(name, uuid);
+            case OFFLINE -> uuid == null ? PlayerIdentity.offline(name) : PlayerIdentity.offline(name, uuid);
+            case FLOODGATE -> xuid == null ? PlayerIdentity.floodgate(name) : PlayerIdentity.floodgate(name, xuid);
+        };
     }
 
     private static List<AccessScope> readScopes(DataInputStream input, int count) throws IOException {

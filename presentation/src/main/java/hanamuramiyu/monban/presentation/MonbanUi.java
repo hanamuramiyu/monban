@@ -61,7 +61,7 @@ public final class MonbanUi {
 
     public Component identityBadge(IdentityType type) {
         Objects.requireNonNull(type, "type");
-        return badge(type.name(), type == IdentityType.ONLINE ? MonbanPalette.ONLINE : MonbanPalette.OFFLINE);
+        return badge(type.name(), type == IdentityType.ONLINE ? MonbanPalette.ONLINE : type == IdentityType.FLOODGATE ? MonbanPalette.NETWORK : MonbanPalette.OFFLINE);
     }
 
     public Component scopeBadge(AccessScope scope) {
@@ -98,6 +98,13 @@ public final class MonbanUi {
             result = result
                     .append(Component.text(" · ", MonbanPalette.SUBTLE))
                     .append(compactUuid(identity.verifiedUuid().orElseThrow()));
+        } else if (identity.type() == IdentityType.FLOODGATE) {
+            Component base = result;
+            result = identity.xuid()
+                    .map(xuid -> base
+                            .append(Component.text(" · XUID ", MonbanPalette.SUBTLE))
+                            .append(Component.text(xuid, MonbanPalette.UUID)))
+                    .orElse(base);
         }
         return result;
     }
@@ -133,11 +140,16 @@ public final class MonbanUi {
         Objects.requireNonNull(identity, "identity");
         Component result = Component.empty()
                 .append(Component.text(identity.type().name(), identity.type() == IdentityType.ONLINE
-                        ? MonbanPalette.ONLINE : MonbanPalette.OFFLINE))
+                        ? MonbanPalette.ONLINE : identity.type() == IdentityType.FLOODGATE ? MonbanPalette.NETWORK : MonbanPalette.OFFLINE))
                 .append(Component.text(" "))
                 .append(Component.text(identity.name(), MonbanPalette.TEXT));
         if (identity.type() == IdentityType.ONLINE) {
             result = result.append(Component.text(" (" + identity.verifiedUuid().orElseThrow() + ")", MonbanPalette.UUID));
+        } else if (identity.type() == IdentityType.FLOODGATE) {
+            Component base = result;
+            result = identity.xuid()
+                    .map(xuid -> base.append(Component.text(" (XUID " + xuid + ")", MonbanPalette.UUID)))
+                    .orElse(base);
         }
         return result;
     }
@@ -148,6 +160,14 @@ public final class MonbanUi {
             return Component.empty()
                     .append(Component.text("ONLINE ", MonbanPalette.ONLINE))
                     .append(compactUuid(identity.verifiedUuid().orElseThrow()));
+        }
+        if (identity.type() == IdentityType.FLOODGATE) {
+            Component result = Component.empty()
+                    .append(Component.text("FLOODGATE ", MonbanPalette.NETWORK))
+                    .append(Component.text(identity.name(), MonbanPalette.TEXT));
+            return identity.xuid()
+                    .map(xuid -> result.append(Component.text(" (XUID " + xuid + ")", MonbanPalette.UUID)))
+                    .orElse(result);
         }
         return Component.empty()
                 .append(Component.text("OFFLINE ", MonbanPalette.OFFLINE))

@@ -58,6 +58,37 @@ class VelocityAccessCommandTest {
     }
 
     @Test
+    void grantNetworkFloodgateBuildsXuidIdentity() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        CommandHarness harness = harness(repository, scope -> {}, Runnable::run, proxyServerStub(List.of(), List.of()));
+        RecordingCommandSource source = new RecordingCommandSource(true);
+
+        harness.dispatcher.execute(
+                "monban access grant network floodgate BedrockHarness 1234567890",
+                source.source()
+        );
+
+        assertEquals(PlayerIdentity.floodgate("BedrockHarness", "1234567890"), repository.lastAdded.identity());
+        assertTrue(source.messagesContain("FLOODGATE BedrockHarness (XUID 1234567890)"));
+    }
+
+    @Test
+    void grantNetworkFloodgateCanUseNameOnly() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        CommandHarness harness = harness(repository, scope -> {}, Runnable::run, proxyServerStub(List.of(), List.of()));
+        RecordingCommandSource source = new RecordingCommandSource(true);
+
+        harness.dispatcher.execute(
+                "monban access grant network floodgate BedrockHarness",
+                source.source()
+        );
+
+        assertEquals(PlayerIdentity.floodgate("BedrockHarness"), repository.lastAdded.identity());
+        assertTrue(source.messagesContain("FLOODGATE BedrockHarness"));
+        assertFalse(source.messagesContain("XUID"));
+    }
+
+    @Test
     void grantServerOnlinePreservesNameAndExactUuid() throws Exception {
         RecordingRepository repository = new RecordingRepository();
         CommandHarness harness = harness(repository, scope -> {}, Runnable::run, proxyServerStub(List.of(), List.of()));

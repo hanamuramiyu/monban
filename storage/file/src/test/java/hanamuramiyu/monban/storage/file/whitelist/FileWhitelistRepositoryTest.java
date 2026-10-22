@@ -71,6 +71,21 @@ class FileWhitelistRepositoryTest {
     }
 
     @Test
+    void savesAndLoadsFloodgateIdentityByNameWithoutXuid() throws IOException {
+        PlayerIdentity identity = PlayerIdentity.floodgate("BedrockHarness");
+        FileWhitelistRepository repository = new FileWhitelistRepository(whitelistFile());
+
+        repository.add(identity);
+
+        PlayerIdentity stored = new FileWhitelistRepository(whitelistFile())
+                .find(PlayerIdentity.floodgate("bedrockharness", "1234567890"))
+                .orElseThrow();
+
+        assertEquals("BedrockHarness", stored.name());
+        assertTrue(stored.xuid().isEmpty());
+    }
+
+    @Test
     void savesAndLoadsOfflineTechnicalUuidAndOriginalCase() throws IOException {
         UUID technicalUuid = testUuid(2);
         PlayerIdentity identity = PlayerIdentity.offline("HanamuraMiyu", technicalUuid);

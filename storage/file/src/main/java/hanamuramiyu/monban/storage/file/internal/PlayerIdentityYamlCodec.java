@@ -14,15 +14,17 @@ public final class PlayerIdentityYamlCodec {
     private static final String NAME_KEY = "name";
     private static final String VERIFIED_UUID_KEY = "verified-uuid";
     private static final String TECHNICAL_UUID_KEY = "technical-uuid";
+    private static final String XUID_KEY = "xuid";
 
     private static final Set<String> ENTRY_FIELDS = Set.of(
             TYPE_KEY,
             NAME_KEY,
             VERIFIED_UUID_KEY,
-            TECHNICAL_UUID_KEY
+            TECHNICAL_UUID_KEY, XUID_KEY
     );
     private static final Set<String> ONLINE_FIELDS = Set.of(TYPE_KEY, NAME_KEY, VERIFIED_UUID_KEY);
     private static final Set<String> OFFLINE_FIELDS = Set.of(TYPE_KEY, NAME_KEY, TECHNICAL_UUID_KEY);
+    private static final Set<String> FLOODGATE_FIELDS = Set.of(TYPE_KEY, NAME_KEY, XUID_KEY);
 
     public PlayerIdentity decode(Map<?, ?> value, String path) throws IOException {
         requireOnlyFields(value, path, ENTRY_FIELDS);
@@ -35,7 +37,7 @@ public final class PlayerIdentityYamlCodec {
             throw new IOException("Invalid identity type at " + path + ": " + typeValue, exception);
         }
 
-        requireOnlyFields(value, path, type == IdentityType.ONLINE ? ONLINE_FIELDS : OFFLINE_FIELDS);
+        requireOnlyFields(value, path, type == IdentityType.ONLINE ? ONLINE_FIELDS : type == IdentityType.OFFLINE ? OFFLINE_FIELDS : FLOODGATE_FIELDS);
         String name = requireString(value.get(NAME_KEY), path + "." + NAME_KEY);
 
         try {
@@ -57,6 +59,12 @@ public final class PlayerIdentityYamlCodec {
                             requireUuid(technicalUuidValue, path + "." + TECHNICAL_UUID_KEY)
                     );
                 }
+                case FLOODGATE -> {
+                    Object xuidValue = value.get(XUID_KEY);
+                    yield xuidValue == null
+                            ? PlayerIdentity.floodgate(name)
+                            : PlayerIdentity.floodgate(name, requireString(xuidValue, path + "." + XUID_KEY));
+                }
             };
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new IOException("Invalid player identity at " + path, exception);
@@ -70,8 +78,10 @@ public final class PlayerIdentityYamlCodec {
 
         if (identity.type() == IdentityType.ONLINE) {
             serialized.put(VERIFIED_UUID_KEY, identity.verifiedUuid().orElseThrow().toString());
-        } else {
+        } else if (identity.type() == IdentityType.OFFLINE) {
             identity.technicalUuid().ifPresent(uuid -> serialized.put(TECHNICAL_UUID_KEY, uuid.toString()));
+        } else {
+            identity.xuid().ifPresent(xuid -> serialized.put(XUID_KEY, xuid));
         }
 
         return serialized;

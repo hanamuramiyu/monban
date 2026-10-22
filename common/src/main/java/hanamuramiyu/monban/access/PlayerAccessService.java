@@ -81,6 +81,11 @@ public final class PlayerAccessService {
 
     public PlayerAccessEvaluation evaluate(String name, UUID technicalUuid, boolean platformAuthenticated) {
         PlayerIdentity identity = identityResolver.resolve(name, technicalUuid, platformAuthenticated);
+        return evaluate(identity);
+    }
+
+    public PlayerAccessEvaluation evaluate(PlayerIdentity identity) {
+        Objects.requireNonNull(identity, "identity");
 
         if (!isWhitelistEnabled()) {
             return new PlayerAccessEvaluation(identity, AccessDecision.ALLOWED);

@@ -31,7 +31,8 @@ Platform and security-sensitive changes should also be runtime-tested on the aff
 - Explain what changed and why.
 - Add or update tests where appropriate.
 - Update user-facing documentation when behavior changes.
-- Preserve explicit `ONLINE` / `OFFLINE` identity semantics.
+- Preserve explicit `ONLINE`, `OFFLINE`, and `FLOODGATE` identity semantics.
+- Keep Floodgate identity resolution on Velocity and preserve fail-closed provider behavior.
 - Do not silently weaken fail-closed access behavior.
 - Do not introduce unrelated refactors into the same pull request.
 

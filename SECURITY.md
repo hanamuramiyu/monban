@@ -18,6 +18,7 @@ Examples include:
 
 - bypassing whitelist or scoped access enforcement;
 - confusing `ONLINE` and `OFFLINE` identity provenance in a way that grants unintended access;
+- confusing a `FLOODGATE` identity with a Java identity or bypassing Floodgate provider checks;
 - fail-open behavior after initialization or verification failures;
 - bypassing Velocity hybrid authentication decisions;
 - bypassing backend admission or accessing a restricted backend without the required grant;

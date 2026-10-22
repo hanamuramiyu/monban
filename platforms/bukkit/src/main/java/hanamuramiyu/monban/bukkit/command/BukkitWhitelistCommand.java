@@ -263,6 +263,7 @@ public final class BukkitWhitelistCommand {
                     }
                     yield PlayerIdentity.online(name, parseUuid(args[3]));
                 }
+                case FLOODGATE -> throw new CommandInputException(presentation.invalidIdentityType("floodgate"));
             };
         } catch (CommandInputException exception) {
             throw exception;

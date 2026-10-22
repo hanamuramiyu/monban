@@ -64,18 +64,29 @@ class VelocityGroupCommandTest {
                 source.source()
         ));
         assertEquals(1, dispatcher.execute("monban user Miyu group add moderator", source.source()));
+        assertEquals(1, dispatcher.execute(
+                "monban user BedrockHarness floodgate 1234567890 group add moderator",
+                source.source()
+        ));
+        assertEquals(1, dispatcher.execute(
+                "monban user BedrockByName floodgate group add moderator",
+                source.source()
+        ));
 
         assertTrue(groups.find("moderator").orElseThrow().permissions().stream()
                 .anyMatch(permission -> permission.node().equals("coreprotect.inspect")));
-        assertEquals(1, assignments.findAll().size());
+        assertEquals(3, assignments.findAll().size());
         assertEquals("Miyu", assignments.findAll().getFirst().identity().name());
-        assertEquals(3, broadcasts.get());
+        assertEquals("1234567890", assignments.findAll().get(1).identity().xuid().orElseThrow());
+        assertEquals("BedrockByName", assignments.findAll().get(2).identity().name());
+        assertTrue(assignments.findAll().get(2).identity().xuid().isEmpty());
+        assertEquals(5, broadcasts.get());
 
         assertEquals(1, dispatcher.execute(
                 "monban group moderator permission add network coreprotect.inspect",
                 source.source()
         ));
-        assertEquals(3, broadcasts.get());
+        assertEquals(5, broadcasts.get());
     }
 
     @Test

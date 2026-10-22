@@ -302,6 +302,7 @@ public final class PaperWhitelistCommand {
             return switch (identityType) {
                 case OFFLINE -> PlayerIdentity.offline(name);
                 case ONLINE -> PlayerIdentity.online(name, parseUuid(context));
+                case FLOODGATE -> throw new CommandInputException(presentation.invalidIdentityType("floodgate"), null);
             };
         } catch (CommandInputException exception) {
             throw exception;

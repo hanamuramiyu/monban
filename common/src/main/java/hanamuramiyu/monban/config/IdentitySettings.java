@@ -6,11 +6,14 @@ import java.util.Objects;
 
 public record IdentitySettings(
         IdentityResolutionMode mode,
-        HybridIdentitySettings hybrid
+        HybridIdentitySettings hybrid,
+        FloodgateSettings floodgate
 ) {
+    public IdentitySettings(IdentityResolutionMode mode, HybridIdentitySettings hybrid) { this(mode, hybrid, FloodgateSettings.defaults()); }
     public IdentitySettings {
         Objects.requireNonNull(mode, "mode");
         Objects.requireNonNull(hybrid, "hybrid");
+        Objects.requireNonNull(floodgate, "floodgate");
     }
 
     public static IdentitySettings defaults() {

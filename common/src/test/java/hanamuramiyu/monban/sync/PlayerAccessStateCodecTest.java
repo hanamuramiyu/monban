@@ -32,7 +32,9 @@ class PlayerAccessStateCodecTest {
                 7,
                 List.of(
                         new AccessGrant(AccessScope.network(), ONLINE),
-                        new AccessGrant(AccessScope.server("survival"), PlayerIdentity.offline("offline"))
+                        new AccessGrant(AccessScope.server("survival"), PlayerIdentity.offline("offline")),
+                        new AccessGrant(AccessScope.server("bedrock"), PlayerIdentity.floodgate("Bedrock")),
+                        new AccessGrant(AccessScope.server("bedrock-xuid"), PlayerIdentity.floodgate("BedrockWithXuid", "001234567890"))
                 ),
                 List.of(new PlayerGroupDefinition(
                         "moderator",

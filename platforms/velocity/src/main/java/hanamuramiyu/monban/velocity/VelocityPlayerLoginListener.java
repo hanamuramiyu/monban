@@ -10,6 +10,9 @@ import com.velocitypowered.api.proxy.Player;
 import hanamuramiyu.monban.access.AccessDecision;
 import hanamuramiyu.monban.access.PlayerAccessEvaluation;
 import hanamuramiyu.monban.access.PlayerAccessService;
+import hanamuramiyu.monban.identity.PlayerIdentity;
+import hanamuramiyu.monban.velocity.floodgate.FloodgateLoginResolution;
+import hanamuramiyu.monban.velocity.floodgate.VelocityFloodgateProvider;
 import hanamuramiyu.monban.velocity.session.VelocityConnectionIdentityRegistry;
 import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
@@ -23,15 +26,38 @@ public final class VelocityPlayerLoginListener {
     private final PlayerAccessService accessService;
     private final VelocityConnectionIdentityRegistry identityRegistry;
     private final Logger logger;
+    private final FloodgateLoginResolution floodgateResolution;
 
     public VelocityPlayerLoginListener(
             PlayerAccessService accessService,
             VelocityConnectionIdentityRegistry identityRegistry,
             Logger logger
     ) {
+        this(accessService, identityRegistry, logger, null, false);
+    }
+
+    public VelocityPlayerLoginListener(
+            PlayerAccessService accessService,
+            VelocityConnectionIdentityRegistry identityRegistry,
+            Logger logger,
+            VelocityFloodgateProvider floodgateProvider
+    ) {
+        this(accessService, identityRegistry, logger, floodgateProvider, false);
+    }
+
+    public VelocityPlayerLoginListener(
+            PlayerAccessService accessService,
+            VelocityConnectionIdentityRegistry identityRegistry,
+            Logger logger,
+            VelocityFloodgateProvider floodgateProvider,
+            boolean requireFloodgateProvider
+    ) {
         this.accessService = Objects.requireNonNull(accessService, "accessService");
         this.identityRegistry = Objects.requireNonNull(identityRegistry, "identityRegistry");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.floodgateResolution = floodgateProvider == null
+                ? null
+                : new FloodgateLoginResolution(floodgateProvider, requireFloodgateProvider);
     }
 
     @Subscribe(priority = Short.MIN_VALUE, async = false)
@@ -81,11 +107,7 @@ public final class VelocityPlayerLoginListener {
         String username = player.getUsername();
 
         try {
-            PlayerAccessEvaluation evaluation = accessService.evaluate(
-                    username,
-                    player.getUniqueId(),
-                    event.getServerIdHash() != null
-            );
+            PlayerAccessEvaluation evaluation = evaluate(player, event.getServerIdHash() != null);
 
             if (evaluation.decision() == AccessDecision.NOT_WHITELISTED) {
                 event.setResult(ResultedEvent.ComponentResult.denied(NOT_WHITELISTED_MESSAGE));
@@ -102,5 +124,19 @@ public final class VelocityPlayerLoginListener {
             );
             event.setResult(ResultedEvent.ComponentResult.denied(ACCESS_ERROR_MESSAGE));
         }
+    }
+
+    private PlayerAccessEvaluation evaluate(Player player, boolean platformAuthenticated) {
+        if (floodgateResolution == null) {
+            return accessService.evaluate(player.getUsername(), player.getUniqueId(), platformAuthenticated);
+        }
+
+        PlayerIdentity identity = floodgateResolution.resolve(
+                player.getUsername(),
+                player.getUniqueId(),
+                platformAuthenticated,
+                (name, uuid) -> accessService.evaluate(name, uuid, platformAuthenticated).identity()
+        );
+        return accessService.evaluate(identity);
     }
 }

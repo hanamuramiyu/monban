@@ -5,6 +5,7 @@ import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.FloodgateSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -53,7 +54,37 @@ class FileMonbanConfigLoaderTest {
         assertEquals(velocityDefaults, config);
         assertEquals(velocityConfig(false, "AUTO", false, "ONLINE"), Files.readString(file, StandardCharsets.UTF_8));
         assertTrue(Files.readString(file, StandardCharsets.UTF_8).contains("hybrid:"));
+        assertTrue(Files.readString(file, StandardCharsets.UTF_8).contains("floodgate:"));
+        assertTrue(Files.readString(file, StandardCharsets.UTF_8).contains("enabled: false"));
+        assertTrue(Files.readString(file, StandardCharsets.UTF_8).contains("require-provider: false"));
         assertFalse(Files.readString(file, StandardCharsets.UTF_8).contains("server-name:"));
+    }
+
+    @Test
+    void velocityConfigWithoutFloodgateSectionIsMigratedToExplicitDefaults() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: true
+                identity:
+                  mode: AUTO
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                backend-permissions:
+                  enabled: false
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(FloodgateSettings.defaults(), config.identity().floodgate());
+        assertTrue(Files.readString(file, StandardCharsets.UTF_8).contains("""
+                  floodgate:
+                    enabled: false
+                    require-provider: false
+                """));
     }
 
     @Test
@@ -66,6 +97,69 @@ class FileMonbanConfigLoaderTest {
         assertTrue(config.whitelist().enabled());
         assertEquals(IdentityResolutionMode.OFFLINE, config.identity().mode());
         assertEquals(HybridIdentitySettings.defaults(), config.identity().hybrid());
+    }
+
+    @Test
+    void standaloneFloodgateSectionIsRejected() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  floodgate:
+                    enabled: false
+                    require-provider: false
+                """);
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+        assertTrue(exception.getMessage().contains("Unknown field at identity.floodgate"));
+    }
+
+    @Test
+    void velocityLoadsFloodgateSettings() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  floodgate:
+                    enabled: false
+                    require-provider: true
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new FloodgateSettings(false, true), config.identity().floodgate());
+    }
+
+    @Test
+    void standaloneSaveRejectsFloodgateSettings() throws IOException {
+        Path file = writeConfig(standaloneConfig(false, "AUTO"));
+        FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
+        MonbanConfig config = loader.load();
+
+        MonbanConfig floodgateConfig = new MonbanConfig(
+                config.deployment(),
+                config.whitelist(),
+                new IdentitySettings(
+                        config.identity().mode(),
+                        config.identity().hybrid(),
+                        new FloodgateSettings(false, true)
+                ),
+                config.backendPermissions()
+        );
+
+        IOException exception = assertThrows(IOException.class, () -> loader.save(floodgateConfig));
+        assertTrue(exception.getMessage().contains("identity.floodgate is supported only in VELOCITY deployment."));
     }
 
     @Test
@@ -495,6 +589,9 @@ class FileMonbanConfigLoaderTest {
                   hybrid:
                     enabled: %s
                     dual-entry-preference: %s
+                  floodgate:
+                    enabled: false
+                    require-provider: false
                 backend-permissions:
                   enabled: false
                 """.formatted(

@@ -10,16 +10,6 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/**
- * Preserves a resolved Minecraft identity for the lifetime of one Velocity connection.
- *
- * <p>This registry stores only the resolved Minecraft identity needed for connection-scoped
- * access decisions. It must not become a general-purpose player state container.</p>
- *
- * <p>Player keys intentionally use reference identity rather than {@link Object#equals(Object)}
- * so reconnecting or conflicting connections cannot remove each other's state merely because
- * their player objects compare equal.</p>
- */
 public final class VelocityConnectionIdentityRegistry {
     private final Map<Player, PlayerIdentity> pending = new IdentityHashMap<>();
     private final Map<Player, PlayerIdentity> active = new IdentityHashMap<>();

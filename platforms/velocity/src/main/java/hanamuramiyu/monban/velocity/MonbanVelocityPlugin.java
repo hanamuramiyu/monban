@@ -5,6 +5,7 @@ import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
@@ -58,6 +59,8 @@ import hanamuramiyu.monban.velocity.hybrid.VelocityHybridIdentitySelector;
 import hanamuramiyu.monban.velocity.hybrid.VelocityHybridPreLoginListener;
 import hanamuramiyu.monban.velocity.permission.VelocityPermissionSetupListener;
 import hanamuramiyu.monban.velocity.session.VelocityConnectionIdentityRegistry;
+import hanamuramiyu.monban.velocity.floodgate.ReflectiveVelocityFloodgateProvider;
+import hanamuramiyu.monban.velocity.floodgate.VelocityFloodgateProvider;
 import hanamuramiyu.monban.velocity.sync.VelocityStateSynchronizer;
 import hanamuramiyu.monban.whitelist.WhitelistRepository;
 import org.slf4j.Logger;
@@ -72,7 +75,8 @@ import hanamuramiyu.monban.sync.SyncSecret;
         name = "monban",
         version = MonbanVelocityPluginMetadata.VERSION,
         description = "Minecraft access control for Velocity networks.",
-        authors = {"Hanamura Miyu"}
+        authors = {"Hanamura Miyu"},
+        dependencies = @Dependency(id = "floodgate", optional = true)
 )
 public final class MonbanVelocityPlugin {
     private final ProxyServer server;
@@ -98,6 +102,8 @@ public final class MonbanVelocityPlugin {
     private PlayerAccessService accessService;
     private WhitelistPolicy whitelistPolicy;
     private VelocityConnectionIdentityRegistry connectionIdentityRegistry;
+    private VelocityFloodgateProvider floodgateProvider;
+    private VelocityPlayerLoginListener playerLoginListener;
     private VelocityPermissionSetupListener permissionSetupListener;
     private VelocityStateSynchronizer stateSynchronizer;
     private CommandMeta commandMeta;
@@ -270,9 +276,28 @@ public final class MonbanVelocityPlugin {
                         )
                 );
             }
+            VelocityFloodgateProvider runtimeFloodgateProvider = loadedConfig.identity().floodgate().enabled()
+                    ? ReflectiveVelocityFloodgateProvider.discover().orElse(null)
+                    : null;
+            if (loadedConfig.identity().floodgate().enabled()
+                    && loadedConfig.identity().floodgate().requireProvider()
+                    && runtimeFloodgateProvider == null) {
+                throw new IllegalStateException("identity.floodgate.require-provider is enabled, but Floodgate API is unavailable.");
+            }
+            this.floodgateProvider = runtimeFloodgateProvider;
+            boolean requireFloodgateProvider = loadedConfig.identity().floodgate().enabled()
+                    && loadedConfig.identity().floodgate().requireProvider();
+            VelocityPlayerLoginListener loginListener = new VelocityPlayerLoginListener(
+                    playerAccessService,
+                    identityRegistry,
+                    logger,
+                    runtimeFloodgateProvider,
+                    requireFloodgateProvider
+            );
+            this.playerLoginListener = loginListener;
             server.getEventManager().register(
                     this,
-                    new VelocityPlayerLoginListener(playerAccessService, identityRegistry, logger)
+                    loginListener
             );
             server.getEventManager().register(
                     this,
@@ -328,12 +353,15 @@ public final class MonbanVelocityPlugin {
         WhitelistRepository repository = this.whitelistRepository;
         CommandMeta registeredCommandMeta = this.commandMeta;
         CommandMeta registeredNativeWhitelistCommandMeta = this.nativeWhitelistCommandMeta;
+        VelocityPlayerLoginListener registeredPlayerLoginListener = this.playerLoginListener;
         VelocityPermissionSetupListener registeredPermissionSetupListener = this.permissionSetupListener;
         VelocityStateSynchronizer registeredStateSynchronizer = this.stateSynchronizer;
 
         this.commandMeta = null;
         this.nativeWhitelistCommandMeta = null;
         this.connectionIdentityRegistry = null;
+        this.floodgateProvider = null;
+        this.playerLoginListener = null;
         this.permissionSetupListener = null;
         this.stateSynchronizer = null;
         this.accessGrantAdministrationService = null;
@@ -366,6 +394,13 @@ public final class MonbanVelocityPlugin {
                 server.getCommandManager().unregister(registeredNativeWhitelistCommandMeta);
             } catch (RuntimeException exception) {
                 logger.error("Failed to unregister the Velocity whitelist command guard cleanly.", exception);
+            }
+        }
+        if (registeredPlayerLoginListener != null) {
+            try {
+                server.getEventManager().unregisterListener(this, registeredPlayerLoginListener);
+            } catch (RuntimeException exception) {
+                logger.error("Failed to unregister the monban player login listener cleanly.", exception);
             }
         }
         if (registeredPermissionSetupListener != null) {

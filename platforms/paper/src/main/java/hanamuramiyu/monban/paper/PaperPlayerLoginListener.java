@@ -11,6 +11,7 @@ import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 
 import java.util.Objects;
 import java.util.logging.Level;
+import hanamuramiyu.monban.identity.PlayerIdentity;
 
 public final class PaperPlayerLoginListener implements Listener {
     private static final Component NOT_WHITELISTED_MESSAGE = Component.text("You are not whitelisted on this server.");
@@ -18,7 +19,6 @@ public final class PaperPlayerLoginListener implements Listener {
 
     private final MonbanPaperPlugin plugin;
     private final PlayerAccessService accessService;
-
     public PaperPlayerLoginListener(MonbanPaperPlugin plugin, PlayerAccessService accessService) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.accessService = Objects.requireNonNull(accessService, "accessService");

@@ -78,6 +78,51 @@ class VelocityWhitelistCommandTest {
     }
 
     @Test
+    void floodgateAddAndRemoveUseNameAsDurableIdentity() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        CommandDispatcher<CommandSource> dispatcher = dispatcher(repository, Runnable::run, new RecordingLogger().logger());
+        RecordingCommandSource source = new RecordingCommandSource(VelocityWhitelistCommand.PERMISSION);
+
+        dispatcher.execute("monban whitelist add floodgate BedrockHarness 1234567890", source.source());
+
+        AccessGrant stored = repository.delegate.findAll().getFirst();
+        assertEquals(PlayerIdentity.floodgate("BedrockHarness", "1234567890"), stored.identity());
+        assertTrue(source.messagesContain("[FLOODGATE] BedrockHarness · XUID 1234567890"));
+
+        dispatcher.execute("monban whitelist remove floodgate BedrockHarness", source.source());
+        assertTrue(repository.delegate.findAll().isEmpty());
+    }
+
+    @Test
+    void floodgateCanBeAddedAndRemovedByNameWithoutXuid() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        CommandDispatcher<CommandSource> dispatcher = dispatcher(repository, Runnable::run, new RecordingLogger().logger());
+        RecordingCommandSource source = new RecordingCommandSource(VelocityWhitelistCommand.PERMISSION);
+
+        dispatcher.execute("monban whitelist add floodgate BedrockHarness", source.source());
+
+        AccessGrant stored = repository.delegate.findAll().getFirst();
+        assertEquals(PlayerIdentity.floodgate("BedrockHarness"), stored.identity());
+        assertTrue(source.messagesContain("[FLOODGATE] BedrockHarness"));
+        assertFalse(source.messagesContain("XUID"));
+
+        dispatcher.execute("monban whitelist remove floodgate bedrockharness", source.source());
+        assertTrue(repository.delegate.findAll().isEmpty());
+    }
+
+    @Test
+    void invalidFloodgateXuidDoesNotMutate() throws Exception {
+        RecordingRepository repository = new RecordingRepository();
+        RecordingExecutor executor = new RecordingExecutor();
+        CommandDispatcher<CommandSource> dispatcher = dispatcher(repository, executor, new RecordingLogger().logger());
+        RecordingCommandSource source = new RecordingCommandSource(VelocityWhitelistCommand.PERMISSION);
+
+        assertEquals(0, dispatcher.execute("monban whitelist add floodgate BedrockHarness not-xuid", source.source()));
+        assertTrue(executor.tasks.isEmpty());
+        assertTrue(source.messagesContain("Invalid Floodgate XUID"));
+    }
+
+    @Test
     void mutationIsScheduledBeforeRepositoryWriteRuns() throws Exception {
         RecordingRepository repository = new RecordingRepository();
         RecordingExecutor executor = new RecordingExecutor();

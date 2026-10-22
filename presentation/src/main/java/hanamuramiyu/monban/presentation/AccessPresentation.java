@@ -20,7 +20,8 @@ public final class AccessPresentation {
             .thenComparing(grant -> grant.identity().type().name())
             .thenComparing(grant -> grant.scope().type().name())
             .thenComparing(grant -> grant.scope().id().orElse(""))
-            .thenComparing(grant -> grant.identity().verifiedUuid().map(UUID::toString).orElse(""));
+            .thenComparing(grant -> grant.identity().verifiedUuid().map(UUID::toString).orElse(""))
+            .thenComparing(grant -> grant.identity().xuid().orElse(""));
 
     private final MonbanUi ui;
 
@@ -46,10 +47,16 @@ public final class AccessPresentation {
                 entry("Grant network", "/monban access grant network offline <name>"),
                 entry("Grant network", "/monban access grant network online <name>"),
                 entry("Grant network", "/monban access grant network online <name> <uuid>"),
+                entry("Grant network", "/monban access grant network floodgate <name>"),
+                entry("Grant network", "/monban access grant network floodgate <name> <xuid>"),
                 entry("Grant group", "/monban access grant group <group-id> offline <name>"),
                 entry("Grant group", "/monban access grant group <group-id> online <name>"),
+                entry("Grant group", "/monban access grant group <group-id> floodgate <name>"),
+                entry("Grant group", "/monban access grant group <group-id> floodgate <name> <xuid>"),
                 entry("Grant server", "/monban access grant server <server-name> offline <name>"),
                 entry("Grant server", "/monban access grant server <server-name> online <name>"),
+                entry("Grant server", "/monban access grant server <server-name> floodgate <name>"),
+                entry("Grant server", "/monban access grant server <server-name> floodgate <name> <xuid>"),
                 entry("Revoke", "/monban access revoke <network|group|server> ..."),
                 entry("List", "/monban access list [page]"),
                 entry("List filtered", "/monban access list <network|group|server> ...")
