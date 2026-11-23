@@ -1,20 +1,22 @@
 package hanamuramiyu.monban.velocity.sync;
 
+import hanamuramiyu.monban.storage.file.AtomicFileSupport;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 
-final class VelocityStateRevisionStore {
+final class VelocityStateRevisionStore implements StateRevisionStore {
     private final Path file;
 
     VelocityStateRevisionStore(Path file) {
         this.file = Objects.requireNonNull(file, "file").toAbsolutePath().normalize();
     }
 
-    long load() {
+    @Override
+    public long load() {
         if (!Files.exists(file)) {
             return 0;
         }
@@ -32,30 +34,14 @@ final class VelocityStateRevisionStore {
         }
     }
 
-    void save(long revision) {
+    @Override
+    public void save(long revision) {
         if (revision < 1) {
             throw new IllegalArgumentException("State revision must be positive.");
         }
-        Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
         try {
-            Files.createDirectories(file.getParent());
-            Files.writeString(temporary, Long.toString(revision), StandardCharsets.UTF_8);
-            try {
-                Files.move(
-                        temporary,
-                        file,
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING
-                );
-            } catch (java.nio.file.AtomicMoveNotSupportedException exception) {
-                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
-            }
+            AtomicFileSupport.writeDurable(file, Long.toString(revision));
         } catch (IOException exception) {
-            try {
-                Files.deleteIfExists(temporary);
-            } catch (IOException cleanupException) {
-                exception.addSuppressed(cleanupException);
-            }
             throw new IllegalStateException("Failed to persist state revision to " + file, exception);
         }
     }

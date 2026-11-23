@@ -6,6 +6,7 @@ import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
 import hanamuramiyu.monban.config.FloodgateSettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -142,6 +143,87 @@ class FileMonbanConfigLoaderTest {
     }
 
     @Test
+    void velocityPartialFloodgateSectionDefaultsToDisabled() throws IOException {
+        String content = """
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: false
+                backend-permissions:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  floodgate:
+                    require-provider: true
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                """;
+        Path file = writeConfig(content);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new FloodgateSettings(false, true), config.identity().floodgate());
+        assertEquals(content, Files.readString(file, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void velocityEmptyFloodgateSectionDefaultsToDisabled() throws IOException {
+        String content = """
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: false
+                backend-permissions:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  floodgate:
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                """;
+        Path file = writeConfig(content);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new FloodgateSettings(false, false), config.identity().floodgate());
+        assertEquals(content, Files.readString(file, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void velocityPartialFloodgateSectionIsNormalizedBySave() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: false
+                backend-permissions:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  floodgate:
+                    require-provider: true
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                """);
+        FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
+
+        loader.save(loader.load());
+
+        String saved = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(saved.contains("""
+                  floodgate:
+                    enabled: false
+                    require-provider: true
+                """));
+    }
+
+    @Test
     void standaloneSaveRejectsFloodgateSettings() throws IOException {
         Path file = writeConfig(standaloneConfig(false, "AUTO"));
         FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
@@ -155,7 +237,8 @@ class FileMonbanConfigLoaderTest {
                         config.identity().hybrid(),
                         new FloodgateSettings(false, true)
                 ),
-                config.backendPermissions()
+                config.backendPermissions(),
+                config.metrics()
         );
 
         IOException exception = assertThrows(IOException.class, () -> loader.save(floodgateConfig));
@@ -185,7 +268,9 @@ class FileMonbanConfigLoaderTest {
         loader.save(new MonbanConfig(
                 original.deployment(),
                 new WhitelistSettings(true),
-                original.identity()
+                original.identity(),
+                original.backendPermissions(),
+                original.metrics()
         ));
 
         MonbanConfig saved = loader.load();
@@ -519,6 +604,370 @@ class FileMonbanConfigLoaderTest {
         assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
     }
 
+    @Test
+    void allowUnverifiedIdentityIsAbsentFromDefaultStandaloneConfig() throws IOException {
+        Path file = tempDirectory.resolve("config.yml");
+
+        new FileMonbanConfigLoader(file).load();
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+
+        assertFalse(content.contains("allow-unverified-identity"));
+        assertEquals(standaloneConfig(false, "AUTO"), content);
+    }
+
+    @Test
+    void missingAllowUnverifiedIdentityDefaultsToFalse() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: true
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: true
+                  server-name: survival
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertFalse(config.backendPermissions().allowUnverifiedIdentity());
+        assertEquals(
+                new BackendPermissionSettings(true, java.util.Optional.of("survival")),
+                config.backendPermissions()
+        );
+    }
+
+    @Test
+    void explicitAllowUnverifiedIdentityIsLoaded() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: true
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: true
+                  server-name: survival
+                  allow-unverified-identity: true
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertTrue(config.backendPermissions().allowUnverifiedIdentity());
+        assertEquals(
+                new BackendPermissionSettings(true, java.util.Optional.of("survival"), true),
+                config.backendPermissions()
+        );
+    }
+
+    @Test
+    void allowUnverifiedIdentityIsRejectedInVelocityDeployment() throws IOException {
+        Path file = writeConfig(velocityConfigWithBackendFlag("true"));
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+
+        assertTrue(exception.getMessage().contains("allow-unverified-identity"));
+        assertTrue(exception.getMessage().contains("VELOCITY"));
+    }
+
+    @Test
+    void allowUnverifiedIdentityIsRejectedInVelocityDeploymentEvenWhenSetToFalse() throws IOException {
+        // The key is not supported on the proxy at all; an explicit "false" must not be silently accepted
+        // and persisted, because it would suggest the option has an effect there.
+        Path file = writeConfig(velocityConfigWithBackendFlag("false"));
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+
+        assertTrue(exception.getMessage().contains("allow-unverified-identity"));
+        assertTrue(exception.getMessage().contains("VELOCITY"));
+    }
+
+    @Test
+    void explicitFalseAllowUnverifiedIdentityIsLoaded() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: true
+                  server-name: survival
+                  allow-unverified-identity: false
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertFalse(config.backendPermissions().allowUnverifiedIdentity());
+        assertEquals(
+                new BackendPermissionSettings(true, java.util.Optional.of("survival"), false),
+                config.backendPermissions()
+        );
+    }
+
+    @Test
+    void allowUnverifiedIdentitySurvivesSaveAndReloadWhileBackendPermissionsAreDisabled() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  allow-unverified-identity: true
+                """);
+        FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
+        MonbanConfig original = loader.load();
+
+        loader.save(new MonbanConfig(
+                original.deployment(),
+                original.whitelist(),
+                original.identity(),
+                original.backendPermissions(),
+                original.metrics()
+        ));
+
+        MonbanConfig reloaded = loader.load();
+        assertFalse(reloaded.backendPermissions().enabled());
+        assertFalse(reloaded.backendPermissions().serverName().isPresent());
+        assertTrue(reloaded.backendPermissions().allowUnverifiedIdentity());
+        assertTrue(
+                Files.readString(file, StandardCharsets.UTF_8).contains("allow-unverified-identity: true"),
+                "an explicit opt-in must not be dropped when backend permissions are disabled"
+        );
+    }
+
+    @Test
+    void allowUnverifiedIdentityMustBeBoolean() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: true
+                  server-name: survival
+                  allow-unverified-identity: "yes"
+                """);
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+
+        assertTrue(exception.getMessage().contains(
+                "Expected boolean at backend-permissions.allow-unverified-identity"
+        ));
+    }
+
+    @Test
+    void allowUnverifiedIdentitySurvivesSaveAndReload() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: true
+                  server-name: survival
+                  allow-unverified-identity: true
+                """);
+        FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
+        MonbanConfig original = loader.load();
+
+        loader.save(new MonbanConfig(
+                original.deployment(),
+                original.whitelist(),
+                original.identity(),
+                original.backendPermissions(),
+                original.metrics()
+        ));
+
+        MonbanConfig reloaded = loader.load();
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(reloaded.backendPermissions().allowUnverifiedIdentity());
+        assertTrue(content.contains("allow-unverified-identity: true"));
+        assertTrue(content.contains("# WARNING: monban cannot verify proxy identity on Bukkit/Spigot."));
+        assertTrue(content.contains("# Enable only while this backend is reachable only from the proxy."));
+    }
+
+    @Test
+    void allowUnverifiedIdentityIsAcceptedWhileBackendPermissionsAreDisabled() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  allow-unverified-identity: true
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertFalse(config.backendPermissions().enabled());
+        assertTrue(config.backendPermissions().allowUnverifiedIdentity());
+    }
+
+    @Test
+    void missingMetricsSectionDefaultsToEnabled() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new MetricsSettings(true), config.metrics());
+        assertTrue(config.metrics().enabled());
+    }
+
+    @Test
+    void explicitMetricsDisabledIsLoaded() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                metrics:
+                  enabled: false
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new MetricsSettings(false), config.metrics());
+        assertFalse(config.metrics().enabled());
+    }
+
+    @Test
+    void metricsEnabledMustBeBoolean() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                metrics:
+                  enabled: 'no-thanks'
+                """);
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+
+        assertTrue(exception.getMessage().contains("Expected boolean at metrics.enabled"));
+    }
+
+    @Test
+    void emptyMetricsSectionDefaultsToEnabled() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                metrics: {}
+                """);
+
+        MonbanConfig config = new FileMonbanConfigLoader(file).load();
+
+        assertEquals(new MetricsSettings(true), config.metrics());
+        assertTrue(config.metrics().enabled());
+    }
+
+    @Test
+    void unknownMetricsFieldFails() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                metrics:
+                  enabled: true
+                  endpoint: custom
+                """);
+
+        IOException exception = assertThrows(IOException.class, () -> new FileMonbanConfigLoader(file).load());
+
+        assertTrue(exception.getMessage().contains("Unknown field at metrics.endpoint"));
+    }
+
+    @Test
+    void metricsSettingSurvivesSaveAndReload() throws IOException {
+        Path file = writeConfig("""
+                config-version: 1
+                deployment:
+                  mode: STANDALONE
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                backend-permissions:
+                  enabled: false
+                  server-name: ''
+                metrics:
+                  enabled: false
+                """);
+        FileMonbanConfigLoader loader = new FileMonbanConfigLoader(file);
+        MonbanConfig original = loader.load();
+
+        loader.save(new MonbanConfig(
+                original.deployment(),
+                original.whitelist(),
+                original.identity(),
+                original.backendPermissions(),
+                original.metrics()
+        ));
+
+        MonbanConfig reloaded = loader.load();
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        assertFalse(reloaded.metrics().enabled());
+        assertTrue(content.contains("metrics:\n  enabled: false\n"));
+    }
+
     private void assertStandaloneHybridRejected(boolean enabled) throws IOException {
         Path file = writeConfig("""
                 config-version: 1
@@ -543,7 +992,9 @@ class FileMonbanConfigLoaderTest {
         return new MonbanConfig(
                 new DeploymentSettings(DeploymentMode.VELOCITY),
                 WhitelistSettings.defaults(),
-                IdentitySettings.defaults()
+                IdentitySettings.defaults(),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
     }
 
@@ -559,6 +1010,8 @@ class FileMonbanConfigLoaderTest {
                 backend-permissions:
                   enabled: false
                   server-name: ''
+                metrics:
+                  enabled: true
                 """.formatted(whitelistEnabled, identityMode);
     }
 
@@ -594,6 +1047,8 @@ class FileMonbanConfigLoaderTest {
                     require-provider: false
                 backend-permissions:
                   enabled: false
+                metrics:
+                  enabled: true
                 """.formatted(
                 deploymentMode,
                 whitelistEnabled,
@@ -601,6 +1056,27 @@ class FileMonbanConfigLoaderTest {
                 hybridEnabled,
                 preference
         );
+    }
+
+    private static String velocityConfigWithBackendFlag(String allowUnverifiedIdentity) {
+        return """
+                config-version: 1
+                deployment:
+                  mode: VELOCITY
+                whitelist:
+                  enabled: false
+                identity:
+                  mode: AUTO
+                  hybrid:
+                    enabled: false
+                    dual-entry-preference: ONLINE
+                  floodgate:
+                    enabled: false
+                    require-provider: false
+                backend-permissions:
+                  enabled: true
+                  allow-unverified-identity: %s
+                """.formatted(allowUnverifiedIdentity);
     }
 
     private Path writeConfig(String content) throws IOException {

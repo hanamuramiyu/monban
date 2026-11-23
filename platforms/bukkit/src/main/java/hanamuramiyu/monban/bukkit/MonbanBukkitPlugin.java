@@ -18,6 +18,9 @@ import hanamuramiyu.monban.access.group.PlayerGroupRepository;
 import hanamuramiyu.monban.access.group.ServerGroupCatalog;
 import hanamuramiyu.monban.bukkit.command.BukkitMonbanCommand;
 import hanamuramiyu.monban.bukkit.command.BukkitWhitelistCommand;
+import hanamuramiyu.monban.bukkit.backend.BackendIdentityGate;
+import hanamuramiyu.monban.bukkit.backend.BukkitProxyForwardingDetector;
+import hanamuramiyu.monban.bukkit.backend.ProxyForwardingStatus;
 import hanamuramiyu.monban.bukkit.presentation.BukkitAdventureSender;
 import hanamuramiyu.monban.bukkit.whitelist.BukkitNativeWhitelistGuard;
 import hanamuramiyu.monban.config.MonbanConfig;
@@ -32,14 +35,17 @@ import hanamuramiyu.monban.storage.file.whitelist.FileWhitelistRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupAssignmentRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupRepository;
 import hanamuramiyu.monban.storage.file.permission.FilePlayerPermissionGrantRepository;
+import hanamuramiyu.monban.storage.file.sync.FileSyncWatermarkStore;
 import hanamuramiyu.monban.whitelist.WhitelistRepository;
 import hanamuramiyu.monban.bukkit.permission.BukkitPermissionAttachmentListener;
 import hanamuramiyu.monban.bukkit.permission.BukkitPermissionAttachmentManager;
 import hanamuramiyu.monban.bukkit.sync.BukkitStateSyncListener;
+import hanamuramiyu.monban.bukkit.update.BukkitUpdateCheckListener;
 import hanamuramiyu.monban.sync.PlayerAccessStateReceiver;
 import hanamuramiyu.monban.sync.PlayerAccessStateCodec;
 import hanamuramiyu.monban.sync.SyncSecret;
 import hanamuramiyu.monban.sync.SyncChannel;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
@@ -47,6 +53,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.logging.Level;
@@ -63,6 +70,7 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
     private BukkitPermissionAttachmentManager permissionAttachmentManager;
     private BukkitStateSyncListener stateSyncListener;
     private boolean backendPermissionsEnabled;
+    private Metrics metrics;
 
     @Override
     public void onEnable() {
@@ -105,6 +113,14 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
             boolean backendPermissionsEnabled = backendSettings.enabled();
             this.backendPermissionsEnabled = backendPermissionsEnabled;
             var backendServerName = backendSettings.serverName();
+            ProxyForwardingStatus forwardingStatus = backendPermissionsEnabled
+                    ? BukkitProxyForwardingDetector.detect(getServer())
+                    : ProxyForwardingStatus.NOT_APPLICABLE;
+            BackendIdentityGate.requireTrustedBackendIdentity(
+                    backendPermissionsEnabled,
+                    forwardingStatus,
+                    backendSettings.allowUnverifiedIdentity()
+            );
             Path syncFile = dataDirectory.resolve("sync.yml");
             SyncSecret syncSecret = backendPermissionsEnabled
                     ? new FileSyncSecretLoader(syncFile).load().orElse(null)
@@ -119,9 +135,14 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
                     backendServerName,
                     syncSecret
             );
+            logBackendIdentityTrust(backendPermissionsEnabled, forwardingStatus, backendServerName);
             PlayerAccessStateReceiver stateReceiver = syncSecret == null
                     ? null
-                    : new PlayerAccessStateReceiver(new PlayerAccessStateCodec(), syncSecret);
+                    : new PlayerAccessStateReceiver(
+                            new PlayerAccessStateCodec(),
+                            syncSecret,
+                            new FileSyncWatermarkStore(dataDirectory.resolve("sync-watermark.yml"))
+                    );
             PlayerAccessService accessService = new PlayerAccessService(
                     loadedConfig,
                     resolver,
@@ -172,7 +193,8 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
                         permissionAttachmentManager == null
                                 ? () -> {
                                 }
-                                : permissionAttachmentManager::refreshAll
+                                : permissionAttachmentManager::refreshAll,
+                        getLogger()
                 );
                 getServer().getMessenger().registerIncomingPluginChannel(this, SyncChannel.ID, listener);
                 this.stateSyncListener = listener;
@@ -203,6 +225,18 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
                         + ", loaded entries: " + loadedEntries + "."
         );
 
+        if (loadedConfig.metrics().enabled()) {
+            try {
+                this.metrics = new Metrics(this, 35532);
+            } catch (RuntimeException | LinkageError exception) {
+                getLogger().log(
+                        Level.WARNING,
+                        "Failed to initialize bStats metrics; continuing without metrics.",
+                        exception
+                );
+            }
+        }
+
         try {
             AccessGrantAdministrationService administrationService = new AccessGrantAdministrationService(
                     networkRepository,
@@ -213,7 +247,7 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
             } else {
                 PluginCommand command = getCommand("monban");
                 if (command != null) {
-                    BukkitMonbanCommand managedCommand = new BukkitMonbanCommand(true);
+                    BukkitMonbanCommand managedCommand = new BukkitMonbanCommand(getDescription().getVersion(), true);
                     command.setExecutor(managedCommand);
                     command.setTabCompleter(managedCommand);
                 }
@@ -227,12 +261,26 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
                     exception
             );
         }
+
+        getServer().getPluginManager().registerEvents(
+                new BukkitUpdateCheckListener(this, getDescription().getVersion(), getLogger()),
+                this
+        );
     }
 
     @Override
     public void onDisable() {
         WhitelistRepository repository = this.whitelistRepository;
 
+        Metrics activeMetrics = this.metrics;
+        this.metrics = null;
+        if (activeMetrics != null) {
+            try {
+                activeMetrics.shutdown();
+            } catch (RuntimeException | LinkageError exception) {
+                getLogger().log(Level.WARNING, "Failed to shut down bStats metrics cleanly.", exception);
+            }
+        }
         this.playerAccessService = null;
         this.backendPermissionsEnabled = false;
         BukkitPermissionAttachmentManager attachmentManager = this.permissionAttachmentManager;
@@ -293,10 +341,11 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
                         loadedConfig.deployment(),
                         new WhitelistSettings(enabled),
                         loadedConfig.identity(),
-                        loadedConfig.backendPermissions()
+                        loadedConfig.backendPermissions(),
+                        loadedConfig.metrics()
                 ))
         );
-        BukkitMonbanCommand rootCommand = new BukkitMonbanCommand(whitelistCommand);
+        BukkitMonbanCommand rootCommand = new BukkitMonbanCommand(getDescription().getVersion(), whitelistCommand);
         command.setExecutor(rootCommand);
         command.setTabCompleter(rootCommand);
     }
@@ -305,6 +354,43 @@ public final class MonbanBukkitPlugin extends JavaPlugin {
         if (!AccessScope.network().equals(scope)) {
             throw new AccessGrantScopeValidationException(
                     "Standalone whitelist administration supports only NETWORK access scope."
+            );
+        }
+    }
+
+    private void logBackendIdentityTrust(
+            boolean backendPermissionsEnabled,
+            ProxyForwardingStatus forwardingStatus,
+            Optional<String> backendServerName
+    ) {
+        if (!backendPermissionsEnabled) {
+            return;
+        }
+        if (forwardingStatus == ProxyForwardingStatus.AUTHENTICATED_PROXY) {
+            getLogger().info(
+                    "backend-permissions: proxy-authenticated Velocity forwarding detected; "
+                            + "backend identity is trusted."
+            );
+            return;
+        }
+        if (forwardingStatus == ProxyForwardingStatus.UNDETERMINED) {
+            getLogger().log(
+                    Level.FINE,
+                    "Could not read proxy forwarding configuration; "
+                            + "treating backend identity as unverified."
+            );
+        }
+        getLogger().warning(
+                "backend-permissions.allow-unverified-identity is enabled for backend '"
+                        + backendServerName.orElse("")
+                        + "'. monban trusts the player identity reported by this server without verifying that it "
+                        + "came from the proxy. Anyone who can connect directly to this server's port can impersonate "
+                        + "any player. Keep this port reachable only from the proxy."
+        );
+        if (forwardingStatus == ProxyForwardingStatus.LEGACY_BUNGEE_FORWARDING) {
+            getLogger().warning(
+                    "spigot.yml has settings.bungeecord: true, so the player UUID comes from the connection "
+                            + "handshake and is not authenticated."
             );
         }
     }

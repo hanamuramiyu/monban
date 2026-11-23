@@ -12,9 +12,9 @@ public final class PaperMonbanCommand {
     private PaperMonbanCommand() {
     }
 
-    public static LiteralCommandNode<CommandSourceStack> create(PaperWhitelistCommand whitelistCommand) {
+    public static LiteralCommandNode<CommandSourceStack> create(String version, PaperWhitelistCommand whitelistCommand) {
         Objects.requireNonNull(whitelistCommand, "whitelistCommand");
-        HelpPresentation help = new HelpPresentation();
+        HelpPresentation help = new HelpPresentation(version);
         return Commands.literal("monban")
                 .executes(context -> {
                     help.lines(context.getSource().getSender().hasPermission(PaperWhitelistCommand.PERMISSION), false, false, false)

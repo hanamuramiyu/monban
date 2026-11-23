@@ -601,7 +601,7 @@ class VelocityAccessCommandTest {
                 false,
                 logger
         );
-        BrigadierCommand command = VelocityMonbanCommand.create(whitelistCommand, accessCommand, statusCommand);
+        BrigadierCommand command = VelocityMonbanCommand.create("test-version", whitelistCommand, accessCommand, statusCommand);
         CommandDispatcher<CommandSource> dispatcher = dispatcher(command);
         CommandSource source = new RecordingCommandSource(true).source();
 
@@ -700,7 +700,7 @@ class VelocityAccessCommandTest {
                 false,
                 logger
         );
-        BrigadierCommand command = VelocityMonbanCommand.create(whitelistCommand, accessCommand, statusCommand);
+        BrigadierCommand command = VelocityMonbanCommand.create("test-version", whitelistCommand, accessCommand, statusCommand);
         return new CommandHarness(dispatcher(command));
     }
 

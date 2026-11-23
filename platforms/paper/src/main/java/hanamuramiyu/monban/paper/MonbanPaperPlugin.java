@@ -30,15 +30,18 @@ import hanamuramiyu.monban.storage.file.whitelist.FileWhitelistRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupAssignmentRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupRepository;
 import hanamuramiyu.monban.storage.file.permission.FilePlayerPermissionGrantRepository;
+import hanamuramiyu.monban.storage.file.sync.FileSyncWatermarkStore;
 import hanamuramiyu.monban.whitelist.WhitelistRepository;
 import hanamuramiyu.monban.paper.permission.PaperPermissionAttachmentListener;
 import hanamuramiyu.monban.paper.permission.PaperPermissionAttachmentManager;
 import hanamuramiyu.monban.paper.sync.PaperStateSyncListener;
+import hanamuramiyu.monban.paper.update.PaperUpdateCheckListener;
 import hanamuramiyu.monban.sync.PlayerAccessStateReceiver;
 import hanamuramiyu.monban.sync.PlayerAccessStateCodec;
 import hanamuramiyu.monban.sync.SyncSecret;
 import hanamuramiyu.monban.sync.SyncChannel;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
@@ -62,6 +65,7 @@ public final class MonbanPaperPlugin extends JavaPlugin {
     private PaperPermissionAttachmentManager permissionAttachmentManager;
     private PaperStateSyncListener stateSyncListener;
     private boolean backendPermissionsEnabled;
+    private Metrics metrics;
 
     @Override
     public void onEnable() {
@@ -104,11 +108,11 @@ public final class MonbanPaperPlugin extends JavaPlugin {
             boolean backendPermissionsEnabled = backendSettings.enabled();
             this.backendPermissionsEnabled = backendPermissionsEnabled;
             var backendServerName = backendSettings.serverName();
-            if (backendPermissionsEnabled && !PaperVelocityConnectionDetector.isVelocityEnabled(getServer())) {
-                throw new IllegalStateException(
-                        "backend-permissions.enabled requires Paper Velocity forwarding to be enabled."
-                );
-            }
+            PaperBackendForwardingPolicy.requireTrustedForwarding(
+                    backendPermissionsEnabled,
+                    PaperVelocityConnectionDetector.isVelocityEnabled(getServer()),
+                    PaperVelocityConnectionDetector.isLegacyBungeeForwardingEnabled(getServer())
+            );
             Path syncFile = dataDirectory.resolve("sync.yml");
             SyncSecret syncSecret = backendPermissionsEnabled
                     ? new FileSyncSecretLoader(syncFile).load().orElse(null)
@@ -125,7 +129,11 @@ public final class MonbanPaperPlugin extends JavaPlugin {
             );
             PlayerAccessStateReceiver stateReceiver = syncSecret == null
                     ? null
-                    : new PlayerAccessStateReceiver(new PlayerAccessStateCodec(), syncSecret);
+                    : new PlayerAccessStateReceiver(
+                            new PlayerAccessStateCodec(),
+                            syncSecret,
+                            new FileSyncWatermarkStore(dataDirectory.resolve("sync-watermark.yml"))
+                    );
             PlayerAccessService accessService = new PlayerAccessService(
                     loadedConfig,
                     resolver,
@@ -179,7 +187,8 @@ public final class MonbanPaperPlugin extends JavaPlugin {
                         permissionAttachmentManager == null
                                 ? () -> {
                                 }
-                                : permissionAttachmentManager::refreshAll
+                                : permissionAttachmentManager::refreshAll,
+                        getLogger()
                 );
                 getServer().getMessenger().registerIncomingPluginChannel(this, SyncChannel.ID, listener);
                 this.stateSyncListener = listener;
@@ -210,6 +219,18 @@ public final class MonbanPaperPlugin extends JavaPlugin {
                         + ", loaded entries: " + loadedEntries + "."
         );
 
+        if (loadedConfig.metrics().enabled()) {
+            try {
+                this.metrics = new Metrics(this, 35532);
+            } catch (RuntimeException | LinkageError exception) {
+                getLogger().log(
+                        Level.WARNING,
+                        "Failed to initialize bStats metrics; continuing without metrics.",
+                        exception
+                );
+            }
+        }
+
         try {
             AccessGrantAdministrationService administrationService = new AccessGrantAdministrationService(
                     networkRepository,
@@ -222,12 +243,26 @@ public final class MonbanPaperPlugin extends JavaPlugin {
         } catch (RuntimeException exception) {
             logManagementRegistrationFailure(exception);
         }
+
+        getServer().getPluginManager().registerEvents(
+                new PaperUpdateCheckListener(this, getPluginMeta().getVersion(), getLogger()),
+                this
+        );
     }
 
     @Override
     public void onDisable() {
         WhitelistRepository repository = this.whitelistRepository;
 
+        Metrics activeMetrics = this.metrics;
+        this.metrics = null;
+        if (activeMetrics != null) {
+            try {
+                activeMetrics.shutdown();
+            } catch (RuntimeException | LinkageError exception) {
+                getLogger().log(Level.WARNING, "Failed to shut down bStats metrics cleanly.", exception);
+            }
+        }
         this.playerAccessService = null;
         this.backendPermissionsEnabled = false;
         PaperPermissionAttachmentManager attachmentManager = this.permissionAttachmentManager;
@@ -289,7 +324,8 @@ public final class MonbanPaperPlugin extends JavaPlugin {
                         loadedConfig.deployment(),
                         new WhitelistSettings(enabled),
                         loadedConfig.identity(),
-                        loadedConfig.backendPermissions()
+                        loadedConfig.backendPermissions(),
+                        loadedConfig.metrics()
                 ))
         );
         getLifecycleManager().registerEventHandler(
@@ -297,7 +333,7 @@ public final class MonbanPaperPlugin extends JavaPlugin {
                 event -> {
                     try {
                         event.registrar().register(
-                                PaperMonbanCommand.create(whitelistCommand),
+                                PaperMonbanCommand.create(getPluginMeta().getVersion(), whitelistCommand),
                                 "monban administration"
                         );
                     } catch (RuntimeException exception) {

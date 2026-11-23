@@ -50,13 +50,14 @@ public final class PlayerGroupAdministrationService {
     }
 
     public PlayerGroupRemoveResult removeGroup(String groupId) {
-        PlayerGroupRemoveResult result = groupRepository.remove(groupId);
-        if (result == PlayerGroupRemoveResult.REMOVED) {
-            assignmentRepository.findAll().stream()
-                    .filter(assignment -> assignment.groupId().equals(groupId))
-                    .forEach(assignmentRepository::remove);
+        if (groupRepository.find(groupId).isEmpty()) {
+            return PlayerGroupRemoveResult.NOT_FOUND;
         }
-        return result;
+        assignmentRepository.findAll().stream()
+                .filter(assignment -> assignment.groupId().equals(groupId))
+                .toList()
+                .forEach(assignmentRepository::remove);
+        return groupRepository.remove(groupId);
     }
 
     public PlayerGroupEntryResult grantAccess(String groupId, AccessScope scope) {

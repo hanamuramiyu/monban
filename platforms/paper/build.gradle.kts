@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":presentation"))
     implementation(project(":config:file"))
     implementation(project(":storage:file"))
+    implementation("org.bstats:bstats-bukkit:3.2.1")
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
 
     testImplementation(platform("org.junit:junit-bom:6.1.2"))
@@ -76,6 +77,23 @@ val verifyDistributionJar by tasks.registering {
             if (count("hanamuramiyu/monban/internal/libs/snakeyaml/Yaml.class") != 1) {
                 throw GradleException("Paper/Folia distribution must contain relocated SnakeYAML exactly once.")
             }
+            if (entries.any { it.startsWith("org/bstats/") }) {
+                throw GradleException("Paper/Folia distribution contains unrelocated bStats classes.")
+            }
+            if (count("hanamuramiyu/monban/internal/libs/bstats/bukkit/Metrics.class") != 1) {
+                throw GradleException("Paper/Folia distribution must contain relocated bStats exactly once.")
+            }
+            if (count("hanamuramiyu/monban/internal/libs/bstats/MetricsBase.class") != 1) {
+                throw GradleException("Paper/Folia distribution must contain relocated bStats-base exactly once.")
+            }
+            if (!entries.any {
+                    it.startsWith("hanamuramiyu/monban/internal/libs/bstats/json/") && it.endsWith(".class")
+                }) {
+                throw GradleException("Paper/Folia distribution must contain relocated bStats JSON support.")
+            }
+            if (count("META-INF/THIRD_PARTY_NOTICES.md") != 1) {
+                throw GradleException("Paper/Folia distribution must contain META-INF/THIRD_PARTY_NOTICES.md.")
+            }
         }
     }
 }
@@ -88,6 +106,9 @@ tasks {
     processResources {
         dependsOn(processPluginDescriptor)
         from(generatedPluginDescriptorDir)
+        from(rootProject.file("THIRD_PARTY_NOTICES.md")) {
+            into("META-INF")
+        }
     }
 
     jar {
@@ -97,6 +118,7 @@ tasks {
     shadowJar {
         archiveFileName.set("monban-paper-folia-${project.version}.jar")
         relocate("org.yaml.snakeyaml", "hanamuramiyu.monban.internal.libs.snakeyaml")
+        relocate("org.bstats", "hanamuramiyu.monban.internal.libs.bstats")
     }
 
     assemble {

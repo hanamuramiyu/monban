@@ -11,9 +11,11 @@ import hanamuramiyu.monban.access.group.memory.InMemoryPlayerGroupAssignmentRepo
 import hanamuramiyu.monban.access.group.memory.InMemoryPlayerGroupRepository;
 import hanamuramiyu.monban.access.permission.memory.InMemoryPlayerPermissionGrantRepository;
 import hanamuramiyu.monban.access.scope.AccessScope;
+import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.DeploymentSettings;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.identity.IdentityResolutionMode;
@@ -24,6 +26,7 @@ import hanamuramiyu.monban.sync.PlayerAccessStateCodec;
 import hanamuramiyu.monban.sync.PlayerAccessStateReceiver;
 import hanamuramiyu.monban.sync.PlayerAccessStateSnapshot;
 import hanamuramiyu.monban.sync.SyncSecret;
+import hanamuramiyu.monban.sync.memory.InMemorySyncWatermarkStore;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -43,7 +46,9 @@ class PlayerAccessServiceTest {
         MonbanConfig config = new MonbanConfig(
                 DeploymentSettings.defaults(),
                 new WhitelistSettings(true),
-                new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults())
+                new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults()),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
         PlayerIdentityResolver resolver = new PlayerIdentityResolver(IdentityResolutionMode.OFFLINE);
         AccessGrantLookup lookup = (scope, identity) -> Optional.empty();
@@ -99,7 +104,9 @@ class PlayerAccessServiceTest {
                 new MonbanConfig(
                         DeploymentSettings.defaults(),
                         new WhitelistSettings(true),
-                        new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults())
+                        new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults()),
+                        BackendPermissionSettings.defaults(),
+                        MetricsSettings.defaults()
                 ),
                 new PlayerIdentityResolver(IdentityResolutionMode.AUTO),
                 directGrants,
@@ -268,7 +275,9 @@ class PlayerAccessServiceTest {
         MonbanConfig config = new MonbanConfig(
                 DeploymentSettings.defaults(),
                 new WhitelistSettings(whitelistEnabled),
-                new IdentitySettings(identityMode, HybridIdentitySettings.defaults())
+                new IdentitySettings(identityMode, HybridIdentitySettings.defaults()),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
         PlayerIdentityResolver resolver = new PlayerIdentityResolver(identityMode);
         return new PlayerAccessService(config, resolver, lookup);
@@ -278,7 +287,9 @@ class PlayerAccessServiceTest {
         return new MonbanConfig(
                 DeploymentSettings.defaults(),
                 new WhitelistSettings(true),
-                new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults())
+                new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults()),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
     }
 
@@ -313,7 +324,11 @@ class PlayerAccessServiceTest {
     }
 
     private static PlayerAccessStateReceiver newReceiver() {
-        return new PlayerAccessStateReceiver(new PlayerAccessStateCodec(), syncSecret());
+        return new PlayerAccessStateReceiver(
+                new PlayerAccessStateCodec(),
+                syncSecret(),
+                new InMemorySyncWatermarkStore()
+        );
     }
 
     private static SyncSecret syncSecret() {

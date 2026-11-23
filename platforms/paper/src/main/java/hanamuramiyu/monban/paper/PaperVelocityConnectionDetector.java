@@ -1,11 +1,14 @@
 package hanamuramiyu.monban.paper;
 
 import org.bukkit.Server;
+import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 final class PaperVelocityConnectionDetector {
+    static final String LEGACY_FORWARDING_SETTING = "settings.bungeecord";
+
     private PaperVelocityConnectionDetector() {
     }
 
@@ -22,6 +25,31 @@ final class PaperVelocityConnectionDetector {
             return enabled instanceof Boolean value && value;
         } catch (ReflectiveOperationException | RuntimeException exception) {
             return false;
+        }
+    }
+
+    /**
+     * Reads the legacy BungeeCord forwarding setting from {@code spigot.yml}.
+     *
+     * <p>Never throws. {@code null} means the setting could not be read, which the startup policy
+     * treats as fail-closed instead of assuming that legacy forwarding is off.
+     */
+    static Boolean isLegacyBungeeForwardingEnabled(Server server) {
+        if (server == null) {
+            return null;
+        }
+        try {
+            Server.Spigot spigot = server.spigot();
+            if (spigot == null) {
+                return null;
+            }
+            YamlConfiguration configuration = spigot.getConfig();
+            if (configuration == null) {
+                return null;
+            }
+            return configuration.getBoolean(LEGACY_FORWARDING_SETTING, false);
+        } catch (RuntimeException | LinkageError exception) {
+            return null;
         }
     }
 

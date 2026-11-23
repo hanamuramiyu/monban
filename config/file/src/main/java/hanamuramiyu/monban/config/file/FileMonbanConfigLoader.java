@@ -6,6 +6,7 @@ import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
 import hanamuramiyu.monban.config.FloodgateSettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -39,7 +40,9 @@ public final class FileMonbanConfigLoader {
     private static final String WHITELIST_KEY = "whitelist";
     private static final String IDENTITY_KEY = "identity";
     private static final String BACKEND_PERMISSIONS_KEY = "backend-permissions";
+    private static final String METRICS_KEY = "metrics";
     private static final String SERVER_NAME_KEY = "server-name";
+    private static final String ALLOW_UNVERIFIED_IDENTITY_KEY = "allow-unverified-identity";
     private static final String HYBRID_KEY = "hybrid";
     private static final String ENABLED_KEY = "enabled";
     private static final String MODE_KEY = "mode";
@@ -50,17 +53,24 @@ public final class FileMonbanConfigLoader {
             DEPLOYMENT_KEY,
             WHITELIST_KEY,
             IDENTITY_KEY,
-            BACKEND_PERMISSIONS_KEY
+            BACKEND_PERMISSIONS_KEY,
+            METRICS_KEY
     );
     private static final Set<String> DEPLOYMENT_FIELDS = Set.of(MODE_KEY);
     private static final Set<String> WHITELIST_FIELDS = Set.of(ENABLED_KEY);
+    private static final Set<String> METRICS_FIELDS = Set.of(ENABLED_KEY);
     private static final String FLOODGATE_KEY = "floodgate";
     private static final String REQUIRE_PROVIDER_KEY = "require-provider";
     private static final Set<String> FLOODGATE_FIELDS = Set.of(ENABLED_KEY, REQUIRE_PROVIDER_KEY);
     private static final Set<String> STANDALONE_IDENTITY_FIELDS = Set.of(MODE_KEY);
     private static final Set<String> VELOCITY_IDENTITY_FIELDS = Set.of(MODE_KEY, HYBRID_KEY, FLOODGATE_KEY);
     private static final Set<String> HYBRID_FIELDS = Set.of(ENABLED_KEY, DUAL_ENTRY_PREFERENCE_KEY);
-    private static final Set<String> BACKEND_PERMISSIONS_FIELDS = Set.of(ENABLED_KEY, SERVER_NAME_KEY);
+    private static final Set<String> BACKEND_PERMISSIONS_FIELDS = Set.of(
+            ENABLED_KEY,
+            SERVER_NAME_KEY,
+            ALLOW_UNVERIFIED_IDENTITY_KEY
+    );
+    private static final Set<String> VELOCITY_BACKEND_PERMISSIONS_FIELDS = Set.of(ENABLED_KEY, SERVER_NAME_KEY);
 
     private final Path file;
     private final MonbanConfig creationDefaults;
@@ -166,11 +176,14 @@ public final class FileMonbanConfigLoader {
                 deploymentMode
         );
 
+        MetricsSettings metrics = parseMetrics(root.get(METRICS_KEY));
+
         MonbanConfig config = new MonbanConfig(
                 new DeploymentSettings(deploymentMode),
                 new WhitelistSettings(whitelistEnabled),
                 new IdentitySettings(identityMode, hybridSettings, floodgateSettings),
-                backendPermissions
+                backendPermissions,
+                metrics
         );
         validateHybridConfiguration(config);
         if (backendPermissionsMissing || velocityServerNamePresent || floodgateSectionMissing) {
@@ -292,7 +305,25 @@ public final class FileMonbanConfigLoader {
         return base + serializeBackendPermissions(
                 config.backendPermissions(),
                 config.deployment().mode() == DeploymentMode.STANDALONE
-        );
+        ) + serializeMetrics(config.metrics());
+    }
+
+    private static MetricsSettings parseMetrics(Object value) throws IOException {
+        if (value == null) {
+            return MetricsSettings.defaults();
+        }
+        Map<String, Object> section = requireStringMap(value, METRICS_KEY);
+        rejectUnknownFields(section, METRICS_FIELDS, METRICS_KEY);
+        if (!section.containsKey(ENABLED_KEY)) {
+            return MetricsSettings.defaults();
+        }
+        boolean enabled = requireBoolean(section.get(ENABLED_KEY), METRICS_KEY + "." + ENABLED_KEY);
+        return new MetricsSettings(enabled);
+    }
+
+    private static String serializeMetrics(MetricsSettings settings) {
+        return "metrics:\n"
+                + "  enabled: " + settings.enabled() + "\n";
     }
 
     private static FloodgateSettings parseFloodgate(Object value) throws IOException {
@@ -301,7 +332,7 @@ public final class FileMonbanConfigLoader {
         rejectUnknownFields(section, FLOODGATE_FIELDS, IDENTITY_KEY + "." + FLOODGATE_KEY);
         boolean enabled = section.containsKey(ENABLED_KEY)
                 ? requireBoolean(section.get(ENABLED_KEY), IDENTITY_KEY + "." + FLOODGATE_KEY + "." + ENABLED_KEY)
-                : true;
+                : false;
         boolean required = section.containsKey(REQUIRE_PROVIDER_KEY)
                 ? requireBoolean(section.get(REQUIRE_PROVIDER_KEY), IDENTITY_KEY + "." + FLOODGATE_KEY + "." + REQUIRE_PROVIDER_KEY)
                 : false;
@@ -316,26 +347,47 @@ public final class FileMonbanConfigLoader {
             return BackendPermissionSettings.defaults();
         }
         Map<String, Object> section = requireStringMap(value, BACKEND_PERMISSIONS_KEY);
-        rejectUnknownFields(section, BACKEND_PERMISSIONS_FIELDS, BACKEND_PERMISSIONS_KEY);
+        if (deploymentMode == DeploymentMode.VELOCITY) {
+            if (section.containsKey(ALLOW_UNVERIFIED_IDENTITY_KEY)) {
+                throw new IOException(
+                        "backend-permissions.allow-unverified-identity is not supported in VELOCITY deployment.\n"
+                                + "Remove the field. Backend identity trust is configured on each backend server, not on the proxy."
+                );
+            }
+            rejectUnknownFields(section, VELOCITY_BACKEND_PERMISSIONS_FIELDS, BACKEND_PERMISSIONS_KEY);
+        } else {
+            rejectUnknownFields(section, BACKEND_PERMISSIONS_FIELDS, BACKEND_PERMISSIONS_KEY);
+        }
         boolean enabled = requireBoolean(
                 section.get(ENABLED_KEY),
                 BACKEND_PERMISSIONS_KEY + "." + ENABLED_KEY
         );
+        boolean allowUnverifiedIdentity = false;
+        if (section.containsKey(ALLOW_UNVERIFIED_IDENTITY_KEY)) {
+            allowUnverifiedIdentity = requireBoolean(
+                    section.get(ALLOW_UNVERIFIED_IDENTITY_KEY),
+                    BACKEND_PERMISSIONS_KEY + "." + ALLOW_UNVERIFIED_IDENTITY_KEY
+            );
+        }
         Object serverNameValue = section.get(SERVER_NAME_KEY);
         if (serverNameValue == null) {
-            return new BackendPermissionSettings(enabled, java.util.Optional.empty());
+            return new BackendPermissionSettings(enabled, java.util.Optional.empty(), allowUnverifiedIdentity);
         }
         if (!(serverNameValue instanceof String serverName)) {
             throw new IOException("Expected server name at " + BACKEND_PERMISSIONS_KEY + "." + SERVER_NAME_KEY);
         }
         if (deploymentMode == DeploymentMode.VELOCITY) {
-            return new BackendPermissionSettings(enabled, java.util.Optional.empty());
+            return new BackendPermissionSettings(enabled, java.util.Optional.empty(), false);
         }
         if (serverName.isEmpty() && !enabled) {
-            return BackendPermissionSettings.defaults();
+            return new BackendPermissionSettings(false, java.util.Optional.empty(), allowUnverifiedIdentity);
         }
         try {
-            return new BackendPermissionSettings(enabled, java.util.Optional.of(serverName));
+            return new BackendPermissionSettings(
+                    enabled,
+                    java.util.Optional.of(serverName),
+                    allowUnverifiedIdentity
+            );
         } catch (RuntimeException exception) {
             throw new IOException("Invalid server name at " + BACKEND_PERMISSIONS_KEY + "." + SERVER_NAME_KEY, exception);
         }
@@ -353,7 +405,14 @@ public final class FileMonbanConfigLoader {
         String serverName = settings.serverName()
                 .map(value -> "'" + value.replace("'", "''") + "'")
                 .orElse("''");
-        return result + "  server-name: " + serverName + "\n";
+        result = result + "  server-name: " + serverName + "\n";
+        if (settings.allowUnverifiedIdentity()) {
+            result = result
+                    + "  # WARNING: monban cannot verify proxy identity on Bukkit/Spigot.\n"
+                    + "  # Enable only while this backend is reachable only from the proxy.\n"
+                    + "  allow-unverified-identity: true\n";
+        }
+        return result;
     }
 
     private void rejectAliases(String yamlText) throws IOException {

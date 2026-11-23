@@ -3,6 +3,7 @@ package hanamuramiyu.monban.velocity;
 import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandMeta;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Dependency;
@@ -27,7 +28,9 @@ import hanamuramiyu.monban.access.group.PlayerGroupRepository;
 import hanamuramiyu.monban.access.group.ServerGroupCatalog;
 import hanamuramiyu.monban.access.permission.PlayerPermissionGrantRepository;
 import hanamuramiyu.monban.config.DeploymentSettings;
+import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.config.file.FileBackendAccessConfigLoader;
@@ -41,6 +44,7 @@ import hanamuramiyu.monban.storage.file.grant.FileScopedAccessGrantRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupAssignmentRepository;
 import hanamuramiyu.monban.storage.file.group.FilePlayerGroupRepository;
 import hanamuramiyu.monban.storage.file.permission.FilePlayerPermissionGrantRepository;
+import hanamuramiyu.monban.storage.file.sync.FileSyncEpochStore;
 import hanamuramiyu.monban.storage.file.whitelist.FileWhitelistRepository;
 import hanamuramiyu.monban.velocity.backend.VelocityBackendAccessPolicyValidator;
 import hanamuramiyu.monban.velocity.backend.VelocityBackendAdmissionListener;
@@ -63,12 +67,16 @@ import hanamuramiyu.monban.velocity.floodgate.ReflectiveVelocityFloodgateProvide
 import hanamuramiyu.monban.velocity.floodgate.VelocityFloodgateProvider;
 import hanamuramiyu.monban.velocity.sync.VelocityStateSynchronizer;
 import hanamuramiyu.monban.whitelist.WhitelistRepository;
+import org.bstats.velocity.Metrics;
 import org.slf4j.Logger;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.Executor;
 import hanamuramiyu.monban.sync.SyncSecret;
+import hanamuramiyu.monban.update.JdkHttpFetcher;
+import hanamuramiyu.monban.update.UpdateCheckService;
 
 @Plugin(
         id = "monban",
@@ -82,6 +90,7 @@ public final class MonbanVelocityPlugin {
     private final ProxyServer server;
     private final Logger logger;
     private final Path dataDirectory;
+    private final Metrics.Factory metricsFactory;
     private final OfficialOnlineProfileResolver profileResolver = new OfficialOnlineProfileResolver();
 
     private MonbanConfig config;
@@ -108,12 +117,19 @@ public final class MonbanVelocityPlugin {
     private VelocityStateSynchronizer stateSynchronizer;
     private CommandMeta commandMeta;
     private CommandMeta nativeWhitelistCommandMeta;
+    private Metrics metrics;
 
     @Inject
-    public MonbanVelocityPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
+    public MonbanVelocityPlugin(
+            ProxyServer server,
+            Logger logger,
+            @DataDirectory Path dataDirectory,
+            Metrics.Factory metricsFactory
+    ) {
         this.server = server;
         this.logger = logger;
         this.dataDirectory = dataDirectory;
+        this.metricsFactory = metricsFactory;
     }
 
     @Subscribe
@@ -131,6 +147,7 @@ public final class MonbanVelocityPlugin {
         int loadedPlayerPermissions;
 
         try {
+            VelocityCompatibilityGuard.requireSupportedLoginApi(LoginEvent.class);
             Files.createDirectories(dataDirectory);
 
             FileMonbanConfigLoader loadedConfigLoader = new FileMonbanConfigLoader(
@@ -255,7 +272,8 @@ public final class MonbanVelocityPlugin {
                         syncSecret,
                         logger,
                         dataDirectory.resolve("state-revision"),
-                        runtimeWhitelistPolicy::enabled
+                        runtimeWhitelistPolicy::enabled,
+                        new FileSyncEpochStore(dataDirectory.resolve("state-epoch"))
                 );
                 synchronizer.registerChannel();
                 server.getEventManager().register(this, synchronizer);
@@ -284,6 +302,11 @@ public final class MonbanVelocityPlugin {
                     && runtimeFloodgateProvider == null) {
                 throw new IllegalStateException("identity.floodgate.require-provider is enabled, but Floodgate API is unavailable.");
             }
+            FloodgateStartupDiagnostics.missingProviderWarning(
+                    loadedConfig.identity().floodgate().enabled(),
+                    loadedConfig.identity().floodgate().requireProvider(),
+                    runtimeFloodgateProvider != null
+            ).ifPresent(logger::warn);
             this.floodgateProvider = runtimeFloodgateProvider;
             boolean requireFloodgateProvider = loadedConfig.identity().floodgate().enabled()
                     && loadedConfig.identity().floodgate().requireProvider();
@@ -337,6 +360,14 @@ public final class MonbanVelocityPlugin {
                 loadedPlayerPermissions
         );
 
+        if (loadedConfig.metrics().enabled()) {
+            try {
+                this.metrics = metricsFactory.make(this, 35533);
+            } catch (RuntimeException | LinkageError exception) {
+                logger.warn("Failed to initialize bStats metrics; continuing without metrics.", exception);
+            }
+        }
+
         try {
             registerManagementCommand();
         } catch (RuntimeException exception) {
@@ -346,6 +377,8 @@ public final class MonbanVelocityPlugin {
                     exception
             );
         }
+
+        scheduleUpdateCheck();
     }
 
     @Subscribe
@@ -356,7 +389,9 @@ public final class MonbanVelocityPlugin {
         VelocityPlayerLoginListener registeredPlayerLoginListener = this.playerLoginListener;
         VelocityPermissionSetupListener registeredPermissionSetupListener = this.permissionSetupListener;
         VelocityStateSynchronizer registeredStateSynchronizer = this.stateSynchronizer;
+        Metrics registeredMetrics = this.metrics;
 
+        this.metrics = null;
         this.commandMeta = null;
         this.nativeWhitelistCommandMeta = null;
         this.connectionIdentityRegistry = null;
@@ -426,6 +461,13 @@ public final class MonbanVelocityPlugin {
                 logger.error("Failed to close monban whitelist storage cleanly.", exception);
             }
         }
+        if (registeredMetrics != null) {
+            try {
+                registeredMetrics.shutdown();
+            } catch (RuntimeException | LinkageError exception) {
+                logger.warn("Failed to shut down bStats metrics cleanly.", exception);
+            }
+        }
         profileResolver.close();
     }
 
@@ -473,7 +515,8 @@ public final class MonbanVelocityPlugin {
                         loadedConfig.deployment(),
                         new WhitelistSettings(enabled),
                         loadedConfig.identity(),
-                        loadedConfig.backendPermissions()
+                        loadedConfig.backendPermissions(),
+                        loadedConfig.metrics()
                 )),
                 stateChanged
         );
@@ -519,6 +562,7 @@ public final class MonbanVelocityPlugin {
                 stateChanged
         );
         var command = VelocityMonbanCommand.create(
+                MonbanVelocityPluginMetadata.VERSION,
                 whitelistCommand,
                 lookupCommand,
                 accessCommand,
@@ -539,6 +583,30 @@ public final class MonbanVelocityPlugin {
         VelocityStateSynchronizer synchronizer = this.stateSynchronizer;
         if (synchronizer != null) {
             synchronizer.broadcast();
+        }
+    }
+
+    private void scheduleUpdateCheck() {
+        server.getScheduler()
+                .buildTask(this, () -> Thread.startVirtualThread(
+                        () -> runUpdateCheck(MonbanVelocityPluginMetadata.VERSION)
+                ))
+                .delay(Duration.ofSeconds(10))
+                .schedule();
+    }
+
+    private void runUpdateCheck(String currentVersion) {
+        try {
+            UpdateCheckService service = new UpdateCheckService(
+                    new JdkHttpFetcher(currentVersion),
+                    currentVersion
+            );
+            service.check().ifPresentOrElse(
+                    result -> logger.info(result.message()),
+                    () -> logger.debug("No newer monban version was found.")
+            );
+        } catch (RuntimeException exception) {
+            logger.debug("monban update check failed; continuing normally.", exception);
         }
     }
 
@@ -574,7 +642,9 @@ public final class MonbanVelocityPlugin {
         return new MonbanConfig(
                 new DeploymentSettings(DeploymentMode.VELOCITY),
                 WhitelistSettings.defaults(),
-                IdentitySettings.defaults()
+                IdentitySettings.defaults(),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
     }
 }

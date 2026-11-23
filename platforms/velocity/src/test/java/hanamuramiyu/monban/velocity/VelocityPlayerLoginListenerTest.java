@@ -8,9 +8,11 @@ import hanamuramiyu.monban.access.PlayerAccessService;
 import hanamuramiyu.monban.access.grant.AccessGrant;
 import hanamuramiyu.monban.access.grant.memory.InMemoryAccessGrantRepository;
 import hanamuramiyu.monban.access.scope.AccessScope;
+import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.DeploymentSettings;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -113,7 +115,9 @@ class VelocityPlayerLoginListenerTest {
                 new MonbanConfig(
                         new DeploymentSettings(DeploymentMode.VELOCITY),
                         new WhitelistSettings(true),
-                        new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults())
+                        new IdentitySettings(IdentityResolutionMode.AUTO, HybridIdentitySettings.defaults()),
+                        BackendPermissionSettings.defaults(),
+                        MetricsSettings.defaults()
                 ),
                 new PlayerIdentityResolver(IdentityResolutionMode.AUTO),
                 grants

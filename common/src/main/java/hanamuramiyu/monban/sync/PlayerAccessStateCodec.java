@@ -26,7 +26,7 @@ import java.util.UUID;
 
 public final class PlayerAccessStateCodec {
     private static final int MAGIC = 0x4D425354;
-    private static final int VERSION = 3;
+    private static final int VERSION = 4;
     private static final int MAX_PAYLOAD_SIZE = 1024 * 1024;
     private static final int MAX_ENTRIES = 100_000;
     private static final int SIGNATURE_SIZE = 32;
@@ -34,19 +34,7 @@ public final class PlayerAccessStateCodec {
 
     public byte[] encode(PlayerAccessStateSnapshot snapshot, SyncSecret secret) {
         try {
-            ByteArrayOutputStream bodyBytes = new ByteArrayOutputStream();
-            DataOutputStream body = new DataOutputStream(bodyBytes);
-            body.writeInt(MAGIC);
-            body.writeInt(VERSION);
-            body.writeLong(snapshot.revision());
-            body.writeBoolean(snapshot.networkWhitelistEnabled());
-            writeAccessGrants(body, snapshot.accessGrants());
-            writeGroups(body, snapshot.groups());
-            writeAssignments(body, snapshot.assignments());
-            writePermissions(body, snapshot.permissions());
-            body.flush();
-
-            byte[] content = bodyBytes.toByteArray();
+            byte[] content = encodeBody(snapshot, snapshot.epoch(), snapshot.revision());
             byte[] signature = sign(content, secret);
             ByteArrayOutputStream resultBytes = new ByteArrayOutputStream(content.length + SIGNATURE_SIZE);
             resultBytes.write(content);
@@ -56,6 +44,44 @@ public final class PlayerAccessStateCodec {
                 throw new IllegalArgumentException("State snapshot exceeds the maximum payload size.");
             }
             return result;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to encode state snapshot.", exception);
+        }
+    }
+
+    /**
+     * Content fingerprint of a snapshot: SHA-256 over the wire body with a fixed
+     * epoch and revision, so the result depends only on the payload content
+     * ({@code networkWhitelistEnabled} and the four lists) and never on lineage
+     * metadata. Two snapshots have the same fingerprint exactly when they would
+     * be encoded to the same body bytes.
+     */
+    public byte[] fingerprint(PlayerAccessStateSnapshot snapshot) {
+        java.util.Objects.requireNonNull(snapshot, "snapshot");
+        byte[] body = encodeBody(snapshot, PlayerAccessStateSnapshot.UNSPECIFIED_EPOCH, 1);
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(body);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to compute state snapshot fingerprint.", exception);
+        }
+    }
+
+    private byte[] encodeBody(PlayerAccessStateSnapshot snapshot, UUID epoch, long revision) {
+        try {
+            ByteArrayOutputStream bodyBytes = new ByteArrayOutputStream();
+            DataOutputStream body = new DataOutputStream(bodyBytes);
+            body.writeInt(MAGIC);
+            body.writeInt(VERSION);
+            body.writeLong(epoch.getMostSignificantBits());
+            body.writeLong(epoch.getLeastSignificantBits());
+            body.writeLong(revision);
+            body.writeBoolean(snapshot.networkWhitelistEnabled());
+            writeAccessGrants(body, snapshot.accessGrants());
+            writeGroups(body, snapshot.groups());
+            writeAssignments(body, snapshot.assignments());
+            writePermissions(body, snapshot.permissions());
+            body.flush();
+            return bodyBytes.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to encode state snapshot.", exception);
         }
@@ -77,6 +103,8 @@ public final class PlayerAccessStateCodec {
             if (input.readInt() != MAGIC || input.readInt() != VERSION) {
                 throw new IllegalArgumentException("Unsupported state snapshot protocol.");
             }
+            long epochMsb = input.readLong();
+            long epochLsb = input.readLong();
             long revision = input.readLong();
             boolean networkWhitelistEnabled = input.readBoolean();
             List<AccessGrant> accessGrants = readAccessGrants(input);
@@ -87,6 +115,7 @@ public final class PlayerAccessStateCodec {
                 throw new IllegalArgumentException("Trailing data in state snapshot.");
             }
             return new PlayerAccessStateSnapshot(
+                    new UUID(epochMsb, epochLsb),
                     revision,
                     networkWhitelistEnabled,
                     accessGrants,

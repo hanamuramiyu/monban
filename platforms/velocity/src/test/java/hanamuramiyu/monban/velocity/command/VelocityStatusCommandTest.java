@@ -11,10 +11,12 @@ import hanamuramiyu.monban.access.grant.AccessGrantInventory;
 import hanamuramiyu.monban.access.group.ServerGroupCatalog;
 import hanamuramiyu.monban.access.group.ServerGroupDefinition;
 import hanamuramiyu.monban.access.scope.AccessScope;
+import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.DeploymentSettings;
 import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -259,7 +261,9 @@ class VelocityStatusCommandTest {
                 new IdentitySettings(
                         IdentityResolutionMode.AUTO,
                         new HybridIdentitySettings(hybridEnabled, preference)
-                )
+                ),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
     }
 

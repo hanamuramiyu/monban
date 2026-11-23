@@ -1,5 +1,6 @@
 package hanamuramiyu.monban.storage.file.internal;
 
+import hanamuramiyu.monban.storage.file.AtomicFileSupport;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -11,14 +12,11 @@ import org.yaml.snakeyaml.events.Event;
 import java.io.IOException;
 import java.io.StringReader;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -63,33 +61,7 @@ public final class FileYamlSupport {
     }
 
     public static void writeAtomically(Path file, String contents) throws IOException {
-        Path parent = file.getParent();
-        Files.createDirectories(parent);
-
-        Path temporaryFile = temporaryFile(file);
-        byte[] serialized = contents.getBytes(StandardCharsets.UTF_8);
-        try {
-            try (FileChannel channel = FileChannel.open(
-                    temporaryFile,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE
-            )) {
-                ByteBuffer buffer = ByteBuffer.wrap(serialized);
-                while (buffer.hasRemaining()) {
-                    channel.write(buffer);
-                }
-                channel.force(true);
-            }
-            moveReplacing(temporaryFile, file);
-        } catch (IOException exception) {
-            try {
-                Files.deleteIfExists(temporaryFile);
-            } catch (IOException cleanupException) {
-                exception.addSuppressed(cleanupException);
-            }
-            throw exception;
-        }
+        AtomicFileSupport.writeDurable(file, contents);
     }
 
     public static Path temporaryFile(Path file) {

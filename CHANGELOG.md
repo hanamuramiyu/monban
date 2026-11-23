@@ -2,6 +2,44 @@
 
 All notable user-facing changes to monban will be documented in this file.
 
+## 3.4.0 — 2026-11-23
+
+Security and reliability update. No new gameplay features beyond opt-out bStats metrics and the update notification.
+
+### Breaking changes
+
+- **Backend synchronization protocol is now version 4.** 3.4.0 and 3.3.0 builds reject each other's snapshots. Update the Velocity proxy and every synchronized backend together; mixed installations fail closed without monban permissions. Rolling the whole network back to 3.3.0 remains possible.
+- A partial `identity.floodgate` section without `enabled` now means **disabled** (was enabled). Set `enabled: true` explicitly for Geyser/Floodgate networks.
+- 3.4.0 always writes a `metrics` section to `config.yml`. Downgrading to 3.3.0 requires deleting that section first.
+
+### Security
+
+- Bukkit backend identity is fail-closed by default: startup is refused when authenticated Velocity forwarding cannot be verified. `backend-permissions.allow-unverified-identity` is the explicit, warning-producing opt-in.
+- Paper refuses the combination of Velocity modern forwarding and legacy `settings.bungeecord: true`; legacy forwarding is not trusted.
+- Backend synchronization now persists an epoch and a watermark before applying a snapshot. Replayed or stale snapshots are rejected after restarts.
+- `state-revision` and the sync watermark use durable writes (fsync). A failed watermark write denies the snapshot; a failed revision write does not block broadcast but is logged.
+- Velocity below 3.5.1 is rejected at startup with a clear message instead of a `NoSuchMethodError`.
+
+### Configuration
+
+- New `metrics.enabled` (default `true`) controls the bundled bStats integration. It can also be disabled globally in `plugins/bStats/config.yml`.
+- `identity.floodgate.enabled` is the only switch that enables Floodgate; `require-provider` is inert while disabled.
+- Version matrix: minimum Spigot/Paper/Folia `1.21`, Velocity `3.5.1`, Java `21`; recommended line `1.21.11`. Paper 26.x compiles against the API but requires Java 25 and remains runtime-unverified. Purpur and drop-in Bukkit/Paper-compatible forks are supported; hybrid forks are not.
+
+### Reliability and performance
+
+- State revision and durable `state-revision` writes now happen only when the synchronized state actually changes.
+- Equal-revision snapshots are handled idempotently: identical content is a no-op, a missing/diverged backend state is repaired.
+- Removed dead `ConnectionIdentityEnvelope` and `FileBackendServerConfigLoader`.
+- Player-group deletion removes assignments before the group, avoiding orphaned assignments on failure.
+
+### Diagnostics
+
+- `/monban` help uses the real plugin version on every platform.
+- Rate-limited WARN messages for rejected snapshots, with reason codes and counters.
+- A newer release is reported after full server startup using Modrinth, with GitHub Releases as fallback; the message links to `https://modrinth.com/plugin/monban`.
+- bStats reports anonymous usage data by default. No player names, UUIDs, IPs, chat, commands, permissions, or configuration files are sent.
+
 ## 3.3.0 — 2026-10-22
 
 Geyser and Floodgate update.

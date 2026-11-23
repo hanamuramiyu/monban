@@ -16,6 +16,7 @@ import hanamuramiyu.monban.sync.PlayerAccessStateCodec;
 import hanamuramiyu.monban.sync.PlayerAccessStateReceiver;
 import hanamuramiyu.monban.sync.PlayerAccessStateSnapshot;
 import hanamuramiyu.monban.sync.SyncSecret;
+import hanamuramiyu.monban.sync.memory.InMemorySyncWatermarkStore;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -168,7 +169,8 @@ class BackendPermissionServiceTest {
                 new PlayerAccessStateCodec(),
                 SyncSecret.fromBase64(Base64.getEncoder().encodeToString(
                         "monban-sync-secret".getBytes(StandardCharsets.UTF_8)
-                ))
+                )),
+                new InMemorySyncWatermarkStore()
         );
     }
 
@@ -176,7 +178,7 @@ class BackendPermissionServiceTest {
         SyncSecret secret = SyncSecret.fromBase64(Base64.getEncoder().encodeToString(
                 "monban-sync-secret".getBytes(StandardCharsets.UTF_8)
         ));
-        assertTrue(receiver.accept(new PlayerAccessStateCodec().encode(snapshot, secret)));
+        assertTrue(receiver.accept(new PlayerAccessStateCodec().encode(snapshot, secret)).accepted());
     }
 
     private static PlayerAccessResolver resolver(

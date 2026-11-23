@@ -343,7 +343,7 @@ class VelocityWhitelistCommandTest {
                 false,
                 logger
         );
-        BrigadierCommand command = VelocityMonbanCommand.create(whitelist, access, status);
+        BrigadierCommand command = VelocityMonbanCommand.create("test-version", whitelist, access, status);
         CommandDispatcher<CommandSource> dispatcher = new CommandDispatcher<>();
         dispatcher.getRoot().addChild(command.getNode());
         return dispatcher;

@@ -13,6 +13,7 @@ import hanamuramiyu.monban.sync.PlayerAccessStateCodec;
 import hanamuramiyu.monban.sync.PlayerAccessStateReceiver;
 import hanamuramiyu.monban.sync.PlayerAccessStateSnapshot;
 import hanamuramiyu.monban.sync.SyncSecret;
+import hanamuramiyu.monban.sync.memory.InMemorySyncWatermarkStore;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.PermissionAttachment;
 import org.bukkit.plugin.Plugin;
@@ -110,7 +111,8 @@ class PaperPermissionAttachmentManagerTest {
     private static PlayerAccessStateReceiver receiver() {
         return new PlayerAccessStateReceiver(
                 new PlayerAccessStateCodec(),
-                secret()
+                secret(),
+                new InMemorySyncWatermarkStore()
         );
     }
 

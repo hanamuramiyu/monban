@@ -10,23 +10,26 @@ public final class VelocityMonbanCommand {
     }
 
     public static BrigadierCommand create(
+            String version,
             VelocityWhitelistCommand whitelistCommand,
             VelocityAccessCommand accessCommand,
             VelocityStatusCommand statusCommand
     ) {
-        return create(whitelistCommand, null, accessCommand, statusCommand, null);
+        return create(version, whitelistCommand, null, accessCommand, statusCommand, null);
     }
 
     public static BrigadierCommand create(
+            String version,
             VelocityWhitelistCommand whitelistCommand,
             VelocityLookupCommand lookupCommand,
             VelocityAccessCommand accessCommand,
             VelocityStatusCommand statusCommand
     ) {
-        return create(whitelistCommand, lookupCommand, accessCommand, statusCommand, null);
+        return create(version, whitelistCommand, lookupCommand, accessCommand, statusCommand, null);
     }
 
     public static BrigadierCommand create(
+            String version,
             VelocityWhitelistCommand whitelistCommand,
             VelocityLookupCommand lookupCommand,
             VelocityAccessCommand accessCommand,
@@ -38,7 +41,7 @@ public final class VelocityMonbanCommand {
         Objects.requireNonNull(statusCommand, "statusCommand");
 
         var root = BrigadierCommand.literalArgumentBuilder("monban");
-        HelpPresentation help = new HelpPresentation();
+        HelpPresentation help = new HelpPresentation(version);
         root.executes(context -> {
                     help.lines(
                             context.getSource().hasPermission(VelocityWhitelistCommand.PERMISSION),

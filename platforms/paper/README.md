@@ -39,7 +39,16 @@ backend-permissions:
   server-name: lobby
 ```
 
-Use the same `plugins/monban/sync.yml` contents on Velocity and the backend. `server-groups.yml` is created automatically. If `SERVER_GROUP` permissions are used, configure the same server-to-group mapping there as on Velocity. `state-revision` is a Velocity file and is not needed on the backend.
+Use the same `plugins/monban/sync.yml` contents on Velocity and the backend. `server-groups.yml` is created automatically. If `SERVER_GROUP` permissions are used, configure the same server-to-group mapping there as on Velocity. `state-revision` and `state-epoch` are Velocity files and are not needed on the backend; the backend keeps its own `sync-watermark.yml`, created automatically. Velocity and all synchronized backends must run the same monban version: mixed versions reject each other's state snapshots and the backend fails closed without monban permissions.
+
+## Backend identity forwarding
+
+With `backend-permissions.enabled: true` this build requires Velocity modern forwarding and refuses to start when the identity source cannot be trusted:
+
+- `settings.bungeecord: true` in `spigot.yml` (legacy BungeeCord forwarding) is refused even when modern forwarding is enabled. Paper must not accept the legacy BungeeCord handshake while modern forwarding is enabled, and a direct connection on the legacy path can present any UUID. Remove `settings.bungeecord: true` and restart the server.
+- When `spigot.yml` cannot be read, monban cannot exclude legacy forwarding and refuses to start as well. Make `spigot.yml` readable with `settings.bungeecord: false`.
+
+Both refusals are fail-closed: the backend port must stay reachable only from Velocity, and monban never applies permissions from an identity it cannot trust. There is no opt-in that bypasses this check on Paper.
 
 Backend permissions can be checked with Chunky:
 
@@ -51,3 +60,7 @@ Backend permissions can be checked with Chunky:
 After assigning the group to a player and reconnecting, `/chunky ` should show the permitted subcommands and `/chunky start` should execute.
 
 Whitelist administration uses Paper/Folia schedulers directly at the platform boundary; there is no generic scheduler abstraction.
+
+## bStats metrics
+
+This build reports anonymous usage statistics through bStats service ID `35532` (shared with the Bukkit/Spigot build). Metrics are enabled by default. Disable them with `metrics.enabled: false` in `config.yml`, or globally in `plugins/bStats/config.yml`. bStats is shaded and relocated into the JAR; no player names, UUIDs, IP addresses, chat, or configuration files are collected. See the [metric page](https://bstats.org/plugin/bukkit/monban/35532) and the [bStats privacy policy](https://bstats.org/privacy-policy). Bundled license notices are in [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) and inside the JAR at `META-INF/THIRD_PARTY_NOTICES.md`.

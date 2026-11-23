@@ -14,19 +14,20 @@ import java.util.Objects;
 public final class BukkitMonbanCommand implements CommandExecutor, TabCompleter {
     private final BukkitWhitelistCommand whitelistCommand;
     private final boolean backendManaged;
-    private final HelpPresentation help = new HelpPresentation();
+    private final HelpPresentation help;
 
-    public BukkitMonbanCommand(BukkitWhitelistCommand whitelistCommand) {
-        this(whitelistCommand, false);
+    public BukkitMonbanCommand(String version, BukkitWhitelistCommand whitelistCommand) {
+        this(version, whitelistCommand, false);
     }
 
-    public BukkitMonbanCommand(BukkitWhitelistCommand whitelistCommand, boolean backendManaged) {
+    public BukkitMonbanCommand(String version, BukkitWhitelistCommand whitelistCommand, boolean backendManaged) {
+        this.help = new HelpPresentation(version);
         this.whitelistCommand = backendManaged ? null : Objects.requireNonNull(whitelistCommand, "whitelistCommand");
         this.backendManaged = backendManaged;
     }
 
-    public BukkitMonbanCommand(boolean backendManaged) {
-        this(null, backendManaged);
+    public BukkitMonbanCommand(String version, boolean backendManaged) {
+        this(version, null, backendManaged);
     }
 
     @Override

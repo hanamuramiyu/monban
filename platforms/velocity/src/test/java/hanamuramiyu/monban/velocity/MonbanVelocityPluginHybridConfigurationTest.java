@@ -1,9 +1,11 @@
 package hanamuramiyu.monban.velocity;
 
+import hanamuramiyu.monban.config.BackendPermissionSettings;
 import hanamuramiyu.monban.config.DeploymentSettings;
 import hanamuramiyu.monban.config.HybridIdentityPreference;
 import hanamuramiyu.monban.config.HybridIdentitySettings;
 import hanamuramiyu.monban.config.IdentitySettings;
+import hanamuramiyu.monban.config.MetricsSettings;
 import hanamuramiyu.monban.config.MonbanConfig;
 import hanamuramiyu.monban.config.WhitelistSettings;
 import hanamuramiyu.monban.deployment.DeploymentMode;
@@ -42,7 +44,9 @@ class MonbanVelocityPluginHybridConfigurationTest {
                 new IdentitySettings(
                         IdentityResolutionMode.AUTO,
                         new HybridIdentitySettings(enabled, HybridIdentityPreference.ONLINE)
-                )
+                ),
+                BackendPermissionSettings.defaults(),
+                MetricsSettings.defaults()
         );
     }
 }

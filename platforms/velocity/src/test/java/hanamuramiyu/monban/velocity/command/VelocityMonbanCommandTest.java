@@ -80,6 +80,16 @@ class VelocityMonbanCommandTest {
         assertTrue(allCommands.messagesContain("/monban lookup <player>"));
     }
 
+    @Test
+    void rootHelpShowsTheVersionPassedToTheFactory() throws Exception {
+        CommandDispatcher<CommandSource> dispatcher = dispatcher();
+        RecordingCommandSource source = new RecordingCommandSource(true);
+
+        assertEquals(1, dispatcher.execute("monban", source.source()));
+
+        assertEquals("monban › test-version", source.messages.get(0));
+    }
+
     private static CommandDispatcher<CommandSource> dispatcher() {
         InMemoryAccessGrantRepository repository = new InMemoryAccessGrantRepository();
         AccessGrantAdministrationService administration = new AccessGrantAdministrationService(repository, scope -> {});
@@ -110,7 +120,7 @@ class VelocityMonbanCommandTest {
                 logger
         );
 
-        BrigadierCommand root = VelocityMonbanCommand.create(whitelist, lookup, access, status);
+        BrigadierCommand root = VelocityMonbanCommand.create("test-version", whitelist, lookup, access, status);
         CommandDispatcher<CommandSource> dispatcher = new CommandDispatcher<>();
         dispatcher.getRoot().addChild(root.getNode());
         return dispatcher;
